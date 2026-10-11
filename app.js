@@ -1,11 +1,3 @@
-/**
- * ==========================================================================
- * BİTRAŞ.COM - BOOTSTRAP 5.3 UYUMLU JAVASCRIPT MİMARİSİ (APP.JS)
- * Form Yönetimi, Dynamic Dropdown & Backend Entegrasyon Simülasyonu
- * ==========================================================================
- */
-
-// Şehir ve İlçe Veri Haritası (Cascading Dropdown Simülasyonu)
 const cityDistrictsMap = {
     istanbul: ['Kadıköy', 'Beşiktaş', 'Şişli', 'Üsküdar', 'Bakırköy', 'Fatih', 'Beyoğlu', 'Maltepe', 'Ataşehir', 'Pendik'],
     ankara: ['Çankaya', 'Yenimahalle', 'Keçiören', 'Mamak', 'Etimesgut', 'Gölbaşı'],
@@ -14,17 +6,27 @@ const cityDistrictsMap = {
     antalya: ['Muratpaşa', 'Konyaaltı', 'Alanya', 'Kepez', 'Manavgat']
 };
 
-/**
- * Sayfa Yüklendiğinde İlk Tetiklemeler
- */
 document.addEventListener('DOMContentLoaded', () => {
     updateDistrictOptions('', 'searchDistrict');
     updateDistrictOptions('', 'barberDistrict');
+    initHeroSlider();
 });
 
-/**
- * 1. DÜŞEN (CASCADING) ŞEHİR - İLÇE SEÇİM MANTIĞI
- */
+<<<<<<< HEAD
+function initHeroSlider() {
+    const slides = document.querySelectorAll('.hero-slider .hero-slide');
+    if (!slides || slides.length <= 1) return;
+
+    let currentSlide = 0;
+    setInterval(() => {
+        slides[currentSlide].classList.remove('active');
+        currentSlide = (currentSlide + 1) % slides.length;
+        slides[currentSlide].classList.add('active');
+    }, 4500);
+}
+
+=======
+>>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
 function updateDistrictOptions(selectedCity, targetSelectId) {
     const districtSelect = document.getElementById(targetSelectId);
     if (!districtSelect) return;
@@ -53,16 +55,13 @@ function updateDistrictOptions(selectedCity, targetSelectId) {
     });
 }
 
-/**
- * Hızlı Arama Doldurma Yardımcısı
- */
 function fillQuickSearch(cityName, districtName, searchQuery) {
     const citySelect = document.getElementById('searchCity');
     const districtSelect = document.getElementById('searchDistrict');
     const searchInput = document.getElementById('searchQuery');
 
     const cityVal = cityName.toLowerCase().replace('i̇', 'i').replace('ı', 'i');
-    
+
     if (citySelect) {
         citySelect.value = cityVal;
         updateDistrictOptions(cityVal, 'searchDistrict');
@@ -82,29 +81,25 @@ function fillQuickSearch(cityName, districtName, searchQuery) {
     if (searchInput) {
         searchInput.value = searchQuery;
     }
-
-    showToast('Arama parametreleri hızlıca dolduruldu! "Bul" butonuna basabilirsiniz.', 'info');
 }
 
-/**
- * 2. BOOTSTRAP 5 MODAL VE TAB AÇMA YARDIMCISI
- */
 function openAuthModal(mode = 'login', role = 'customer') {
     const modalEl = document.getElementById('authModal');
     if (!modalEl) return;
 
-    // Bootstrap Modal Nesnesi Başlat / Aç
     const authModal = bootstrap.Modal.getOrCreateInstance(modalEl);
     authModal.show();
 
-    // Role Tab Seçimi (Müşteri vs Berber)
     const roleTabTrigger = document.querySelector(role === 'customer' ? '#pills-customer-tab' : '#pills-barber-tab');
     if (roleTabTrigger) {
         const tab = bootstrap.Tab.getOrCreateInstance(roleTabTrigger);
         tab.show();
     }
 
-    // Sub Tab Seçimi (Giriş Yap vs Kayıt Ol)
+<<<<<<< HEAD
+=======
+   
+>>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
     setTimeout(() => {
         let subTabSelector = '';
         if (role === 'customer') {
@@ -112,7 +107,6 @@ function openAuthModal(mode = 'login', role = 'customer') {
         } else {
             subTabSelector = mode === 'login' ? '#barber-login-tab' : '#barber-reg-tab';
         }
-
         const subTabTrigger = document.querySelector(subTabSelector);
         if (subTabTrigger) {
             const subTab = bootstrap.Tab.getOrCreateInstance(subTabTrigger);
@@ -128,18 +122,13 @@ function closeAuthModal() {
     if (authModal) authModal.hide();
 }
 
-/**
- * 3. FORM GÖNDERİMİ VE BACKEND SİMÜLASYONU (FormData, Console.log & Notification)
- */
+<<<<<<< HEAD
+=======
 function handleFormSubmit(event, formTitle) {
     event.preventDefault();
     const formElement = event.target;
-    
-    // FormData ile tüm form alanlarını dinamik olarak çek
     const formData = new FormData(formElement);
     const dataObj = Object.fromEntries(formData.entries());
-
-    // Konsola detaylı backend çıktısı yazdır
     console.group(`🚀 [BACKEND SİMÜLASYONU] ${formTitle} Formu Gönderildi`);
     console.log('Form ID:', formElement.id);
     console.log('Rol:', dataObj.role || 'Bilinmiyor');
@@ -147,25 +136,19 @@ function handleFormSubmit(event, formTitle) {
     console.log('Backend API JSON Gönderim Formatı:', JSON.stringify(dataObj, null, 2));
     console.groupEnd();
 
-    // Modal'ı kapat
+
     closeAuthModal();
 
-    // Bildirim toaster'ı göster
     const roleText = dataObj.role === 'barber' ? 'Berber (İşletme)' : 'Müşteri';
     const actionText = formTitle.includes('Register') ? 'kaydı simüle edildi' : 'girişi başarılı';
     
     showToast(`✅ ${roleText} ${actionText}! Veriler veritabanına gönderilmeye hazır.`, 'success');
 
-    // Sunum amacıyla ekranda JSON verisini gösteren önizleme modalını aç
     openDataPreviewModal(formTitle, dataObj);
 
-    // Formu temizle
     formElement.reset();
 }
 
-/**
- * Hero Arama Formu Gönderim Yakalayıcısı
- */
 function handleHeroSearch(event) {
     event.preventDefault();
     const formElement = event.target;
@@ -183,18 +166,14 @@ function handleHeroSearch(event) {
     showToast(`🔎 Berber Araması Yapıldı: ${cityText} / ${districtText} - ${queryText}`, 'info');
 }
 
-/**
- * Randevu Butonu Simülasyonu
- */
+>>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
 function triggerAppointmentSimulation(barberName) {
-    console.log(`[RANDEVU TALEBİ] "${barberName}" salonu için randevu akışı başlatıldı.`);
     openAuthModal('login', 'customer');
+<<<<<<< HEAD
+=======
     showToast(`✂️ ${barberName} için randevu alabilmek için lütfen önce Müşteri Girişi yapın.`, 'warning');
 }
 
-/**
- * 4. TOAST BİLDİRİM SİSTEMİ
- */
 function showToast(message, type = 'success') {
     const container = document.getElementById('toastContainer');
     if (!container) return;
@@ -233,9 +212,6 @@ function showToast(message, type = 'success') {
     }, 4500);
 }
 
-/**
- * Data Preview Modal Control (Bootstrap Modal API)
- */
 function openDataPreviewModal(title, dataObj) {
     const previewContent = document.getElementById('dataPreviewContent');
     const previewModalEl = document.getElementById('dataPreviewModal');
@@ -253,4 +229,5 @@ function closeDataPreviewModal() {
         const modal = bootstrap.Modal.getInstance(previewModalEl);
         if (modal) modal.hide();
     }
+>>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
 }

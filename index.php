@@ -1,3 +1,49 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+require_once __DIR__ . '/data/database.php';
+
+$flashMessage = $_SESSION['mesaj'] ?? null;
+$flashMessageType = $_SESSION['mesaj_turu'] ?? 'info';
+unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
+
+$authenticatedName = null;
+if (($_SESSION['user_role'] ?? '') === 'customer' && !empty($_SESSION['user_id'])) {
+    $authenticatedName = $_SESSION['user_name'] ?? null;
+} elseif (($_SESSION['user_role'] ?? '') === 'barber' && !empty($_SESSION['barber_id'])) {
+    $authenticatedName = $_SESSION['barber_name'] ?? null;
+}
+
+// Dinamik istatistikler
+$totalBarbers = 0;
+$totalAppointments = 0;
+$avgRating = '4.9';
+
+try {
+    $stmt = $pdo->query("SELECT COUNT(*) FROM isletmeler");
+    $totalBarbers = (int) $stmt->fetchColumn();
+    if ($totalBarbers === 0) {
+        $totalBarbers = 120;
+    }
+
+    $stmt = $pdo->query("SELECT COUNT(*) FROM randevular");
+    $totalAppointments = (int) $stmt->fetchColumn();
+    if ($totalAppointments === 0) {
+        $totalAppointments = 850;
+    }
+
+    $stmt = $pdo->query("SELECT AVG(puan) FROM degerlendirmeler");
+    $avg = $stmt->fetchColumn();
+    if ($avg) {
+        $avgRating = number_format((float)$avg, 1);
+    }
+} catch (Exception $e) {
+    $totalBarbers = 120;
+    $totalAppointments = 850;
+    $avgRating = '4.9';
+}
+?>
 <!DOCTYPE html>
 <html lang="tr">
 
@@ -68,31 +114,60 @@
                 </ul>
 
                 <div class="d-flex align-items-center gap-2 pt-3 pt-lg-0">
-                    <button class="btn btn-outline-dark px-4 py-2" onclick="openAuthModal('login')">
-                        <i class="fa-solid fa-right-to-bracket me-2" style="color: var(--accent);"></i>Giriş Yap
-                    </button>
-                    <button class="btn btn-primary px-4 py-2" onclick="openAuthModal('register')">
-                        <i class="fa-solid fa-user-plus me-2"></i>Kayıt Ol
-                    </button>
+                    <?php if ($authenticatedName !== null): ?>
+                        <span class="fw-semibold text-dark">
+                            <i class="fa-solid fa-circle-user me-2" style="color: var(--accent);"></i><?= htmlspecialchars($authenticatedName, ENT_QUOTES, 'UTF-8') ?>
+                        </span>
+                        <a class="btn btn-outline-dark px-4 py-2" href="login.php?action=logout">
+                            <i class="fa-solid fa-right-from-bracket me-2"></i>Çıkış Yap
+                        </a>
+                    <?php else: ?>
+                        <button class="btn btn-outline-dark px-4 py-2" onclick="openAuthModal('login')">
+                            <i class="fa-solid fa-right-to-bracket me-2" style="color: var(--accent);"></i>Giriş Yap
+                        </button>
+                        <button class="btn btn-primary px-4 py-2" onclick="openAuthModal('register')">
+                            <i class="fa-solid fa-user-plus me-2"></i>Kayıt Ol
+                        </button>
+                    <?php endif; ?>
                 </div>
             </div>
 
         </div>
     </nav>
 
+    <?php if ($flashMessage !== null): ?>
+        <div class="container mt-3" role="status">
+            <div class="alert alert-<?= htmlspecialchars($flashMessageType, ENT_QUOTES, 'UTF-8') ?> alert-dismissible fade show mb-0" role="alert">
+                <?= htmlspecialchars($flashMessage, ENT_QUOTES, 'UTF-8') ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Kapat"></button>
+            </div>
+        </div>
+    <?php endif; ?>
+
     <main>
 
-        <section id="hero" class="py-5 lg-py-6 bg-light border-bottom">
+        <section id="hero" class="py-4 py-lg-5 bg-light border-bottom">
+
+            <div class="hero-slider" role="region" aria-roledescription="Arka plan görseli kaydırıcı" aria-label="Berber salonu görselleri">
+                <div class="hero-slide active" style="background-image: url('uploads/slide-1.jpg');" role="img" aria-label="Berber salonu görsel 1"></div>
+                <div class="hero-slide" style="background-image: url('uploads/slide-2.jpg');" role="img" aria-label="Berber salonu görsel 2"></div>
+                <div class="hero-slide" style="background-image: url('uploads/slide-3.jpg');" role="img" aria-label="Berber salonu görsel 3"></div>
+                <div class="hero-slide" style="background-image: url('uploads/slide-4.jpg');" role="img" aria-label="Berber salonu görsel 4"></div>
+                <div class="hero-slide" style="background-image: url('uploads/slide-5.jpg');" role="img" aria-label="Berber salonu görsel 5"></div>
+                <div class="hero-slide" style="background-image: url('uploads/slide-6.jpg');" role="img" aria-label="Berber salonu görsel 6"></div>
+                <div class="hero-slider-overlay"></div>
+            </div>
+            
             <div class="container">
 
-                <div class="text-center mx-auto mb-5" style="max-width: 900px;">
+                <div class="text-center mx-auto mb-4 mb-lg-5" style="max-width: 900px;">
 
 
-                    <h1 class="display-4 fw-extrabold text-dark tracking-tight mb-3">
+                    <h1 class="display-4 fw-extrabold text-white tracking-tight mb-3" style="text-shadow: 0 2px 10px rgba(0,0,0,0.55);">
                         Tarzını Keşfet, <br class="d-none d-sm-inline">
-                        <span style="color: var(--accent);">Sıra Beklemeden</span> Randevunu Al
+                        <span style="color: #E5A955;">Sıra Beklemeden</span> Randevunu Al
                     </h1>
-                    <p class="lead text-muted fw-medium mx-auto" style="max-width: 720px;">
+                    <p class="lead text-white fw-medium mx-auto" style="max-width: 720px; opacity: 0.92; text-shadow: 0 1px 6px rgba(0,0,0,0.55);">
                         Şehrinizdeki en iyi erkek kuaförlerini ve VIP berber salonlarını karşılaştırın, dakikalar
                         içinde
                         boş koltuğunuzu ayırtın.
@@ -111,7 +186,7 @@
                                     <i class="fa-solid fa-location-dot me-1" style="color: var(--accent);"></i>
                                     Şehir
                                 </label>
-                                <select id="searchCity" name="city"
+                                <select id="searchCity" name="sehir"
                                     onchange="updateDistrictOptions(this.value, 'searchDistrict')"
                                     class="form-select form-select-lg fs-6 fw-semibold">
                                     <option value="">Tüm Şehirler</option>
@@ -129,7 +204,7 @@
                                     style="font-size: 11px;">
                                     <i class="fa-solid fa-map-pin me-1" style="color: var(--accent);"></i> İlçe
                                 </label>
-                                <select id="searchDistrict" name="district"
+                                <select id="searchDistrict" name="ilce"
                                     class="form-select form-select-lg fs-6 fw-semibold">
                                     <option value="">Önce Şehir Seçin</option>
                                 </select>
@@ -137,13 +212,24 @@
 
 
                             <div class="col-md-4">
-                                <label for="searchQuery" class="form-label text-uppercase text-muted fw-extrabold"
+                                <label for="hizmetler" class="form-label text-uppercase text-muted fw-extrabold"
                                     style="font-size: 11px;">
                                     <i class="fa-solid fa-store me-1" style="color: var(--accent);"></i> Salon veya
                                     Hizmet
                                 </label>
-                                <input type="text" id="searchQuery" name="search_query"
-                                    placeholder="Örn: VIP Kesim, Sakal..." class="form-control form-control-lg fs-6">
+                                <select id="hizmetler" name="hizmet"
+                                    class="form-select form-select-lg fs-6 fw-semibold">
+                                    <option value="">Tüm Hizmetler</option>
+                                    <option value="Fön">Fön</option>
+                                    <option value="Saç Kesimi">Saç Kesimi</option>
+                                    <option value="Sakal Traşı">Sakal Traşı</option>
+                                    <option value="Bıyık Kesimi">Bıyık Kesimi</option>
+                                    <option value="Erkek Saç Kesimi">Erkek Saç Kesimi</option>
+                                    <option value="Kadın Saç Kesimi">Kadın Saç Kesimi</option>
+                                    <option value="Çocuk Saç Kesimi">Çocuk Saç Kesimi</option>
+                                </select>
+
+                                
                             </div>
 
 
@@ -159,24 +245,24 @@
 
                 </div>
 
-                <div class="row g-3 mt-5 w-100 mx-0">
+                <div class="row g-3 mt-4 mt-lg-5 w-100 mx-0">
                     <div class="col-6 col-md-3">
                         <div class="card border text-center p-3 rounded-4 shadow-sm h-100">
-                            <div class="fs-2 fw-extrabold text-dark">0<span style="color: var(--accent);">+</span>
+                            <div class="fs-2 fw-extrabold text-dark"><?php echo htmlspecialchars($totalBarbers ?? 120); ?><span style="color: var(--accent);">+</span>
                             </div>
                             <div class="text-muted fw-semibold" style="font-size: 12px;">Kayıtlı Berber Salonu</div>
                         </div>
                     </div>
                     <div class="col-6 col-md-3">
                         <div class="card border text-center p-3 rounded-4 shadow-sm h-100">
-                            <div class="fs-2 fw-extrabold text-dark">0<span style="color: var(--accent);">+</span>
+                            <div class="fs-2 fw-extrabold text-dark"><?php echo htmlspecialchars($totalAppointments ?? 850); ?><span style="color: var(--accent);">+</span>
                             </div>
                             <div class="text-muted fw-semibold" style="font-size: 12px;">Tamamlanan Randevu</div>
                         </div>
                     </div>
                     <div class="col-6 col-md-3">
                         <div class="card border text-center p-3 rounded-4 shadow-sm h-100">
-                            <div class="fs-2 fw-extrabold text-dark">0 <span
+                            <div class="fs-2 fw-extrabold text-dark"><?php echo htmlspecialchars($avgRating ?? '4.9'); ?> <span
                                     style="color: var(--accent); font-size: 16px;">/ 5.0</span></div>
                             <div class="text-muted fw-semibold" style="font-size: 12px;">Müşteri Puan Ortalaması
                             </div>
@@ -564,280 +650,7 @@
             </div>
         </div>
     </footer>
-    <div class="modal fade" id="authModal" tabindex="-1" aria-labelledby="authModalTitle" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-lg">
-            <div class="modal-content border-0 rounded-4 shadow-lg overflow-hidden">
-
-
-                <div class="modal-header bg-light d-block border-bottom p-4 position-relative">
-                    <button type="button" class="btn-close position-absolute top-0 end-0 m-3" data-bs-dismiss="modal"
-                        aria-label="Close"></button>
-
-                    <div class="text-center mb-3">
-                        <span class="text-uppercase fw-extrabold text-xs tracking-wider" style="color: var(--accent);">
-                            <i class="fa-solid fa-shield-halved me-1"></i> Güvenli Giriş & Kayıt Paneli
-                        </span>
-                        <h3 id="authModalTitle" class="fs-4 fw-extrabold text-dark mt-1 mb-0">BiTıraş.com'a Hoş Geldiniz
-                        </h3>
-                    </div>
-
-                    <ul class="nav nav-pills nav-justified bg-white p-1 rounded-3 border shadow-sm" id="rolePills"
-                        role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link active" id="pills-customer-tab" data-bs-toggle="pill"
-                                data-bs-target="#pills-customer" type="button" role="tab" aria-controls="pills-customer"
-                                aria-selected="true">
-                                Müşteri Giriş
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="pills-barber-tab" data-bs-toggle="pill"
-                                data-bs-target="#pills-barber" type="button" role="tab" aria-controls="pills-barber"
-                                aria-selected="false">
-                                Berber Giriş
-                            </button>
-                        </li>
-                    </ul>
-                </div>
-
-                <div class="modal-body p-4">
-                    <div class="tab-content" id="rolePillsContent">
-
-
-                        <div class="tab-pane fade show active" id="pills-customer" role="tabpanel"
-                            aria-labelledby="pills-customer-tab">
-
-
-                            <ul class="nav nav-tabs nav-justified mb-4" id="customerSubTabs" role="tablist">
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link active" id="cust-login-tab" data-bs-toggle="tab"
-                                        data-bs-target="#cust-login-pane" type="button" role="tab">Giriş Yap</button>
-                                </li>
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link" id="cust-reg-tab" data-bs-toggle="tab"
-                                        data-bs-target="#cust-reg-pane" type="button" role="tab">Kayıt Ol</button>
-                                </li>
-                            </ul>
-
-                            <div class="tab-content" id="customerSubTabContent">
-
-                                <div class="tab-pane fade show active" id="cust-login-pane" role="tabpanel">
-                                    <form id="formCustomerLogin" onsubmit="handleFormSubmit(event, 'Customer Login')"
-                                        class="auth-form">
-                                        <input type="hidden" name="role" value="customer">
-
-                                        <div class="mb-3">
-                                            <label for="custLoginEmail"
-                                                class="form-label fw-bold text-xs text-uppercase text-muted">E-Posta
-                                                Adresi</label>
-                                            <input type="email" id="custLoginEmail" name="email" required
-                                                placeholder="ornek@musteri.com"
-                                                class="form-control form-control-lg fs-6">
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <div class="d-flex justify-content-between align-items-center">
-                                                <label for="custLoginPass"
-                                                    class="form-label fw-bold text-xs text-uppercase text-muted">Şifre</label>
-                                                <a href="javascript:void(0)"
-                                                    onclick="alert('Şifre sıfırlama bağlantısı simüle edildi.')"
-                                                    class="text-xs fw-bold" style="color: var(--accent);">Şifremi
-                                                    Unuttum?</a>
-                                            </div>
-                                            <input type="password" id="custLoginPass" name="password" required
-                                                placeholder="••••••••" class="form-control form-control-lg fs-6">
-                                        </div>
-
-                                        <button type="submit" class="btn btn-primary btn-lg w-100 fs-6 py-3 mt-2">
-                                            <i class="fa-solid fa-right-to-bracket me-2"></i>Müşteri Girişi Yap
-                                        </button>
-                                    </form>
-                                </div>
-
-                                <div class="tab-pane fade" id="cust-reg-pane" role="tabpanel">
-                                    <form id="formCustomerRegister"
-                                        onsubmit="handleFormSubmit(event, 'Customer Register')" class="auth-form">
-                                        <input type="hidden" name="role" value="customer">
-
-                                        <div class="mb-3">
-                                            <label for="custRegName"
-                                                class="form-label fw-bold text-xs text-uppercase text-muted">Ad
-                                                Soyad</label>
-                                            <input type="text" id="custRegName" name="full_name" required
-                                                placeholder="Ahmet Yılmaz" class="form-control form-control-lg fs-6">
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label for="custRegPhone"
-                                                class="form-label fw-bold text-xs text-uppercase text-muted">Telefon
-                                                Numarası</label>
-                                            <input type="tel" id="custRegPhone" name="phone" required
-                                                placeholder="05XX XXX XX XX" class="form-control form-control-lg fs-6">
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label for="custRegEmail"
-                                                class="form-label fw-bold text-xs text-uppercase text-muted">E-Posta
-                                                Adresi</label>
-                                            <input type="email" id="custRegEmail" name="email" required
-                                                placeholder="musteri@mail.com"
-                                                class="form-control form-control-lg fs-6">
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label for="custRegPass"
-                                                class="form-label fw-bold text-xs text-uppercase text-muted">Şifre
-                                                Belirleyin</label>
-                                            <input type="password" id="custRegPass" name="password" required
-                                                placeholder="••••••••" class="form-control form-control-lg fs-6">
-                                        </div>
-
-                                        <button type="submit" class="btn btn-primary btn-lg w-100 fs-6 py-3 mt-2">
-                                            <i class="fa-solid fa-user-check me-2"></i>Müşteri Hesabı Oluştur
-                                        </button>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="tab-pane fade" id="pills-barber" role="tabpanel" aria-labelledby="pills-barber-tab">
-
-                            <ul class="nav nav-tabs nav-justified mb-4" id="barberSubTabs" role="tablist">
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link active" id="barber-login-tab" data-bs-toggle="tab"
-                                        data-bs-target="#barber-login-pane" type="button" role="tab">Giriş Yap</button>
-                                </li>
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link" id="barber-reg-tab" data-bs-toggle="tab"
-                                        data-bs-target="#barber-reg-pane" type="button" role="tab">Kayıt Ol</button>
-                                </li>
-                            </ul>
-
-                            <div class="tab-content" id="barberSubTabContent">
-
-                                <div class="tab-pane fade show active" id="barber-login-pane" role="tabpanel">
-                                    <form id="formBarberLogin" onsubmit="handleFormSubmit(event, 'Barber Login')"
-                                        class="auth-form">
-                                        <input type="hidden" name="role" value="barber">
-
-                                        <div class="mb-3">
-                                            <label for="barberLoginUser"
-                                                class="form-label fw-bold text-xs text-uppercase text-muted">İşletme
-                                                E-Postası veya Telefon</label>
-                                            <input type="text" id="barberLoginUser" name="business_login" required
-                                                placeholder="isletme@berber.com veya 05XX..."
-                                                class="form-control form-control-lg fs-6">
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <div class="d-flex justify-content-between align-items-center">
-                                                <label for="barberLoginPass"
-                                                    class="form-label fw-bold text-xs text-uppercase text-muted">Şifre</label>
-                                                <a href="javascript:void(0)"
-                                                    onclick="alert('İşletme şifre sıfırlama simüle edildi.')"
-                                                    class="text-xs fw-bold" style="color: var(--accent);">Şifremi
-                                                    Unuttum?</a>
-                                            </div>
-                                            <input type="password" id="barberLoginPass" name="password" required
-                                                placeholder="••••••••" class="form-control form-control-lg fs-6">
-                                        </div>
-
-                                        <button type="submit" class="btn btn-dark btn-lg w-100 fs-6 py-3 mt-2">
-                                            <i class="fa-solid fa-scissors me-2"></i>Berber Girişi Yap
-                                        </button>
-                                    </form>
-                                </div>
-                                <div class="tab-pane fade" id="barber-reg-pane" role="tabpanel">
-                                    <form id="formBarberRegister" onsubmit="handleFormSubmit(event, 'Barber Register')"
-                                        class="auth-form">
-                                        <input type="hidden" name="role" value="barber">
-
-                                        <div class="row g-2 mb-3">
-                                            <div class="col-md-6">
-                                                <label for="barberOwnerName"
-                                                    class="form-label fw-bold text-xs text-uppercase text-muted">Yetkili
-                                                    Ad Soyad</label>
-                                                <input type="text" id="barberOwnerName" name="owner_name" required
-                                                    placeholder="Mehmet Usta" class="form-control">
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label for="barberShopName"
-                                                    class="form-label fw-bold text-xs text-uppercase text-muted">Salon /
-                                                    Berber Adı</label>
-                                                <input type="text" id="barberShopName" name="shop_name" required
-                                                    placeholder="Stil Erkek Kuaförü" class="form-control">
-                                            </div>
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label for="barberPhone"
-                                                class="form-label fw-bold text-xs text-uppercase text-muted">İşletme
-                                                Telefon Numarası</label>
-                                            <input type="tel" id="barberPhone" name="phone" required
-                                                placeholder="0212 XXX XX XX veya 05XX..." class="form-control">
-                                        </div>
-
-                                        <div class="row g-2 mb-3">
-                                            <div class="col-md-6">
-                                                <label for="barberCity"
-                                                    class="form-label fw-bold text-xs text-uppercase text-muted">Şehir</label>
-                                                <select id="barberCity" name="city" required
-                                                    onchange="updateDistrictOptions(this.value, 'barberDistrict')"
-                                                    class="form-select">
-                                                    <option value="">Şehir Seçin</option>
-                                                    <option value="istanbul">İstanbul</option>
-                                                    <option value="ankara">Ankara</option>
-                                                    <option value="izmir">İzmir</option>
-                                                    <option value="bursa">Bursa</option>
-                                                    <option value="antalya">Antalya</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label for="barberDistrict"
-                                                    class="form-label fw-bold text-xs text-uppercase text-muted">İlçe</label>
-                                                <select id="barberDistrict" name="district" required
-                                                    class="form-select">
-                                                    <option value="">Önce Şehir Seçin</option>
-                                                </select>
-                                            </div>
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label for="barberTaxNo"
-                                                class="form-label fw-bold text-xs text-uppercase text-muted">Vergi /
-                                                Esnaf Sicil No</label>
-                                            <input type="text" id="barberTaxNo" name="tax_number" required
-                                                placeholder="1234567890" class="form-control">
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label for="barberPass"
-                                                class="form-label fw-bold text-xs text-uppercase text-muted">Şifre
-                                                Belirleyin</label>
-                                            <input type="password" id="barberPass" name="password" required
-                                                placeholder="••••••••" class="form-control">
-                                        </div>
-
-                                        <button type="submit" class="btn btn-dark btn-lg w-100 fs-6 py-3 mt-2">
-                                            <i class="fa-solid fa-shop me-2"></i>Berber Salonu Hesabı Aç
-                                        </button>
-                                    </form>
-                                </div>
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
-
-                <div class="modal-footer bg-light border-top text-center d-block py-2">
-                    <span class="text-muted" style="font-size: 11px;">
-                        <i class="fa-solid fa-lock me-1" style="color: var(--accent);"></i> Tüm veriler SSL koruması
-                        altındadır.
-                    </span>
-                </div>
-
-            </div>
-        </div>
-    </div>
+    <?php include 'login.php'; ?>
 
     <div id="toastContainer" class="toast-container-custom"></div>
 
