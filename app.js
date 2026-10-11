@@ -12,7 +12,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initHeroSlider();
 });
 
-<<<<<<< HEAD
 function initHeroSlider() {
     const slides = document.querySelectorAll('.hero-slider .hero-slide');
     if (!slides || slides.length <= 1) return;
@@ -25,8 +24,6 @@ function initHeroSlider() {
     }, 4500);
 }
 
-=======
->>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
 function updateDistrictOptions(selectedCity, targetSelectId) {
     const districtSelect = document.getElementById(targetSelectId);
     if (!districtSelect) return;
@@ -96,10 +93,6 @@ function openAuthModal(mode = 'login', role = 'customer') {
         tab.show();
     }
 
-<<<<<<< HEAD
-=======
-   
->>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
     setTimeout(() => {
         let subTabSelector = '';
         if (role === 'customer') {
@@ -122,8 +115,6 @@ function closeAuthModal() {
     if (authModal) authModal.hide();
 }
 
-<<<<<<< HEAD
-=======
 function handleFormSubmit(event, formTitle) {
     event.preventDefault();
     const formElement = event.target;
@@ -166,11 +157,8 @@ function handleHeroSearch(event) {
     showToast(`🔎 Berber Araması Yapıldı: ${cityText} / ${districtText} - ${queryText}`, 'info');
 }
 
->>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
 function triggerAppointmentSimulation(barberName) {
     openAuthModal('login', 'customer');
-<<<<<<< HEAD
-=======
     showToast(`✂️ ${barberName} için randevu alabilmek için lütfen önce Müşteri Girişi yapın.`, 'warning');
 }
 
@@ -229,5 +217,4 @@ function closeDataPreviewModal() {
         const modal = bootstrap.Modal.getInstance(previewModalEl);
         if (modal) modal.hide();
     }
->>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
 }

@@ -3,17 +3,14 @@
     --bg-card: #FFFFFF;
     --bg-dark: #0F172A;
     --bg-dark-surface: #1E293B;
-
     --text-dark: #0F172A;
     --text-slate: #334155;
     --text-muted: #64748B;
     --text-light: #F8FAFC;
-
     --accent: #C28840;
     --accent-hover: #A66E2C;
     --accent-light: #FDF8F3;
     --accent-border: #E8D3B9;
-
     --border-color: #E2E8F0;
     --border-dark: #334155;
 }
@@ -178,12 +175,6 @@ a {
     width: 100%;
 }
 
-<<<<<<< HEAD
-/* ==========================================================================
-   Hero Arka Plan Slider
-   ========================================================================== */
-#hero {
-=======
 #hero {
     min-height: calc(100vh - 116px);
     display: flex;
@@ -210,7 +201,6 @@ a {
 }
 
 .step-icon-box {
->>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
     position: relative;
     overflow: hidden;
     min-height: calc(100vh - 110px);
@@ -244,30 +234,6 @@ a {
     transition: opacity 0.8s ease-in-out, transform 2s ease-out;
 }
 
-<<<<<<< HEAD
-.hero-slide.active {
-    opacity: 1;
-    transform: scale(1);
-}
-
-.hero-slider-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(180deg, rgba(15, 23, 42, 0.60) 0%, rgba(15, 23, 42, 0.74) 100%);
-    backdrop-filter: blur(0.5px);
-    -webkit-backdrop-filter: blur(0.5px);
-    z-index: 2;
-}
-
-#hero .container {
-    position: relative;
-    z-index: 3;
-    width: 100%;
-}
-=======
 .step-desc {
     font-size: 14.5px;
     color: var(--text-muted);
@@ -275,4 +241,3 @@ a {
     font-weight: 400;
     margin-bottom: 0;
 }
->>>>>>> c64d98ffda22c826f28598755e13fe44fd295fed
