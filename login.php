@@ -83,11 +83,27 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $barber = $stmt->fetch();
 
             if ($barber && (password_verify($password, $barber['sifre_hash']) || $password === $barber['sifre_hash'])) {
-                $_SESSION['barber_id'] = $barber['id'];
-                $_SESSION['barber_name'] = $barber['isletme_adi'];
-                $_SESSION['user_role'] = 'barber';
-                $_SESSION['mesaj'] = "Giriş başarılı! Hoş geldiniz, " . htmlspecialchars($barber['isletme_adi']) . ".";
-                $_SESSION['mesaj_turu'] = "success";
+                                                                                               
+                if ($barber['durum'] === 'pending') {
+                    $_SESSION['mesaj'] = "İşletme hesabınız henüz onay aşamasındadır. Sistem yöneticisi onayından sonra giriş yapabilirsiniz.";
+                    $_SESSION['mesaj_turu'] = "warning";
+                } elseif ($barber['durum'] === 'rejected') {
+                    $gerekce = !empty($barber['red_gerekce']) ? " Gerekçe: " . $barber['red_gerekce'] : "";
+                    $_SESSION['mesaj'] = "İşletme başvurunuz onaylanmamıştır." . htmlspecialchars($gerekce);
+                    $_SESSION['mesaj_turu'] = "danger";
+                } elseif ($barber['durum'] === 'suspended') {
+                    $_SESSION['mesaj'] = "İşletme hesabınız askıya alınmıştır. Lütfen destek ekibi ile iletişime geçin.";
+                    $_SESSION['mesaj_turu'] = "danger";
+                } else {
+                                                                   
+                    session_regenerate_id(true);
+                    $_SESSION['barber_id'] = $barber['id'];
+                    $_SESSION['barber_role'] = 'barber';
+                    $_SESSION['barber_name'] = $barber['isletme_adi'];
+                    $_SESSION['user_role'] = 'barber';
+                    $_SESSION['mesaj'] = "Giriş başarılı! Hoş geldiniz, " . htmlspecialchars($barber['isletme_adi']) . ".";
+                    $_SESSION['mesaj_turu'] = "success";
+                }
             } else {
                 $_SESSION['mesaj'] = "Hatalı işletme bilgisi veya şifre girdiniz!";
                 $_SESSION['mesaj_turu'] = "danger";
@@ -123,14 +139,25 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 $_SESSION['mesaj_turu'] = "danger";
             } else {
                 $hash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("INSERT INTO isletmeler (isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce, tam_adres, sifre_hash, durum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')");
+                                                                                    
+                $stmt = $pdo->prepare("INSERT INTO isletmeler (isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce, tam_adres, sifre_hash, durum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')");
                 $stmt->execute([$ownerName, $shopName, $phone, $email, $city, $district, $tamAdres, $hash]);
+                $newBusinessId = (int)$pdo->lastInsertId();
 
-                $_SESSION['barber_id'] = $pdo->lastInsertId();
-                $_SESSION['barber_name'] = $shopName;
-                $_SESSION['user_role'] = 'barber';
-                $_SESSION['mesaj'] = "İşletme kaydınız başarıyla oluşturuldu! Hoş geldiniz.";
-                $_SESSION['mesaj_turu'] = "success";
+                                                               
+                try {
+                    $stmtNotif = $pdo->prepare("INSERT INTO bildirimler (baslik, mesaj, tur, link) VALUES (?, ?, 'info', ?)");
+                    $stmtNotif->execute([
+                        "Yeni İşletme Başvurusu: " . $shopName,
+                        "{$ownerName} ({$phone}) yeni bir berber işletmesi kaydı oluşturdu. Onaylamak için tıklayın.",
+                        "/admin/pages/applications.php?detail=" . $newBusinessId
+                    ]);
+                } catch (Exception $e) {}
+
+                                                                          
+                unset($_SESSION['barber_id'], $_SESSION['barber_name'], $_SESSION['user_role']);
+                $_SESSION['mesaj'] = "İşletme kaydınız başarıyla alındı! Hesabınız sistem yöneticisi onayından sonra aktif hale gelecektir.";
+                $_SESSION['mesaj_turu'] = "info";
             }
         } else {
             $_SESSION['mesaj'] = "Lütfen zorunlu alanları doldurun.";

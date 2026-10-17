@@ -7,7 +7,7 @@ const cityDistrictsMap = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-    updateDistrictOptions('', 'searchDistrict');
+    initSearchableFilters();
     updateDistrictOptions('', 'barberDistrict');
     initHeroSlider();
 });
@@ -24,16 +24,20 @@ function initHeroSlider() {
     }, 4500);
 }
 
-function updateDistrictOptions(selectedCity, targetSelectId) {
+function updateDistrictOptions(selectedCity, targetSelectId, selectedDistrict = '') {
     const districtSelect = document.getElementById(targetSelectId);
     if (!districtSelect) return;
 
     districtSelect.innerHTML = '';
+    const isBusinessSearch = targetSelectId === 'searchDistrict';
+    const districtsMap = isBusinessSearch && window.availableBusinessLocations
+        ? window.availableBusinessLocations
+        : cityDistrictsMap;
 
-    if (!selectedCity || !cityDistrictsMap[selectedCity]) {
+    if (!selectedCity || !districtsMap[selectedCity]) {
         const defaultOpt = document.createElement('option');
         defaultOpt.value = '';
-        defaultOpt.textContent = 'Önce Şehir Seçin';
+        defaultOpt.textContent = isBusinessSearch ? 'Tüm İlçeler' : 'Önce Şehir Seçin';
         districtSelect.appendChild(defaultOpt);
         return;
     }
@@ -43,42 +47,169 @@ function updateDistrictOptions(selectedCity, targetSelectId) {
     defaultOpt.textContent = 'Tüm İlçeler';
     districtSelect.appendChild(defaultOpt);
 
-    const districts = cityDistrictsMap[selectedCity];
+    const districts = districtsMap[selectedCity];
     districts.forEach(district => {
         const opt = document.createElement('option');
-        opt.value = district.toLowerCase().replace(/\s+/g, '-');
+        opt.value = isBusinessSearch ? district : district.toLowerCase().replace(/\s+/g, '-');
         opt.textContent = district;
+        opt.selected = district === selectedDistrict;
         districtSelect.appendChild(opt);
     });
 }
 
-function fillQuickSearch(cityName, districtName, searchQuery) {
-    const citySelect = document.getElementById('searchCity');
-    const districtSelect = document.getElementById('searchDistrict');
-    const searchInput = document.getElementById('searchQuery');
-
-    const cityVal = cityName.toLowerCase().replace('i̇', 'i').replace('ı', 'i');
-
-    if (citySelect) {
-        citySelect.value = cityVal;
-        updateDistrictOptions(cityVal, 'searchDistrict');
-    }
-
-    setTimeout(() => {
-        if (districtSelect && districtName) {
-            for (let opt of districtSelect.options) {
-                if (opt.textContent.toLowerCase() === districtName.toLowerCase()) {
-                    districtSelect.value = opt.value;
-                    break;
-                }
-            }
+function initSearchableFilters() {
+    const data = window.businessSearchOptions || {};
+    const locations = data.locations || {};
+    const normalizeLocationName = value => value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('tr-TR')
+        .replace(/ı/g, 'i');
+    const inputs = [
+        {
+            input: document.getElementById('searchCity'),
+            options: () => data.cities || [],
+            placeholder: 'Tüm şehirler'
+        },
+        {
+            input: document.getElementById('searchDistrict'),
+            options: () => {
+                const city = Object.keys(locations).find(
+                    name => normalizeLocationName(name) === normalizeLocationName(document.getElementById('searchCity')?.value || '')
+                );
+                return city ? locations[city] : [];
+            },
+            placeholder: 'Tüm ilçeler'
+        },
+        {
+            input: document.getElementById('hizmetler'),
+            options: () => data.services || [],
+            placeholder: 'Tüm hizmetler'
         }
-    }, 50);
+    ];
 
-    if (searchInput) {
-        searchInput.value = searchQuery;
-    }
+    inputs.forEach(({ input, options, placeholder }) => {
+        if (!input) return;
+        const menu = document.getElementById(input.getAttribute('aria-controls'));
+        if (!menu) return;
+
+        let activeIndex = -1;
+        const close = () => {
+            menu.hidden = true;
+            input.setAttribute('aria-expanded', 'false');
+            activeIndex = -1;
+        };
+        const render = (query = '') => {
+            const normalizedQuery = query.trim().toLocaleLowerCase('tr-TR');
+            const uniqueOptions = new Map();
+            options().forEach(value => {
+                const key = normalizeLocationName(value);
+                if (!uniqueOptions.has(key)) uniqueOptions.set(key, value);
+            });
+            const matches = [...uniqueOptions.values()]
+                .filter(value => value.toLocaleLowerCase('tr-TR').startsWith(normalizedQuery))
+                .sort((left, right) => left.localeCompare(right, 'tr-TR'))
+                .slice(0, 100);
+            menu.replaceChildren();
+            if (!matches.length) {
+                close();
+                return;
+            }
+            matches.forEach(value => {
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'hero-search-option';
+                option.setAttribute('role', 'option');
+                option.textContent = value;
+                option.addEventListener('mousedown', event => event.preventDefault());
+                option.addEventListener('click', () => {
+                    input.value = value;
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    close();
+                    if (input.id === 'searchCity') {
+                        const districtInput = document.getElementById('searchDistrict');
+                        if (districtInput && districtInput.value) {
+                            const cityKey = Object.keys(locations).find(
+                                name => normalizeLocationName(name) === normalizeLocationName(value)
+                            );
+                            if (!cityKey || !locations[cityKey].includes(districtInput.value)) {
+                                districtInput.value = '';
+                            }
+                        }
+                    }
+                });
+                menu.appendChild(option);
+            });
+            menu.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+            activeIndex = -1;
+        };
+
+        input.placeholder = placeholder;
+        input.addEventListener('focus', () => render(input.value));
+        input.addEventListener('input', () => render(input.value));
+        input.addEventListener('keydown', event => {
+            const optionsInMenu = [...menu.querySelectorAll('[role="option"]')];
+            if (event.key === 'ArrowDown' && !menu.hidden) {
+                event.preventDefault();
+                activeIndex = (activeIndex + 1) % optionsInMenu.length;
+            } else if (event.key === 'ArrowUp' && !menu.hidden) {
+                event.preventDefault();
+                activeIndex = (activeIndex - 1 + optionsInMenu.length) % optionsInMenu.length;
+            } else if (event.key === 'Enter' && !menu.hidden && activeIndex >= 0) {
+                event.preventDefault();
+                optionsInMenu[activeIndex].click();
+            } else if (event.key === 'Escape') {
+                close();
+            } else {
+                return;
+            }
+            optionsInMenu.forEach((option, index) => option.classList.toggle('active', index === activeIndex));
+            if (activeIndex >= 0) optionsInMenu[activeIndex].scrollIntoView({ block: 'nearest' });
+        });
+        input.addEventListener('blur', () => setTimeout(close, 120));
+    });
+
+    document.addEventListener('pointerdown', event => {
+        if (!event.target.closest('.hero-search-autocomplete')) {
+            document.querySelectorAll('.hero-search-options:not([hidden])').forEach(menu => {
+                menu.hidden = true;
+                document.getElementById(menu.id === 'searchCityOptions' ? 'searchCity' : menu.id === 'searchDistrictOptions' ? 'searchDistrict' : 'hizmetler')
+                    ?.setAttribute('aria-expanded', 'false');
+            });
+        }
+    });
 }
+
+function updateHizmetOptions(selectedHizmet, targetSelectId) {
+    const hizmetSelect = document.getElementById(targetSelectId);
+    if (!hizmetSelect) return;
+
+    hizmetSelect.innerHTML = '';
+
+    if (!selectedHizmet || !hizmetOptions[selectedHizmet]) {
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = 'Önce Hizmet Seçin';
+        hizmetSelect.appendChild(defaultOpt);
+        return;
+    }
+
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = 'Tüm Hizmetler';
+    hizmetSelect.appendChild(defaultOpt);
+
+    const hizmetler = hizmetOptions[selectedHizmet];
+    hizmetler.forEach(hizmet => {
+        const opt = document.createElement('option');
+        opt.value = hizmet.toLowerCase().replace(/\s+/g, '-');
+        opt.textContent = hizmet;
+        hizmetSelect.appendChild(opt);
+    });
+}
+
+
 
 function openAuthModal(mode = 'login', role = 'customer') {
     const modalEl = document.getElementById('authModal');
@@ -100,6 +231,7 @@ function openAuthModal(mode = 'login', role = 'customer') {
         } else {
             subTabSelector = mode === 'login' ? '#barber-login-tab' : '#barber-reg-tab';
         }
+
         const subTabTrigger = document.querySelector(subTabSelector);
         if (subTabTrigger) {
             const subTab = bootstrap.Tab.getOrCreateInstance(subTabTrigger);
@@ -115,106 +247,6 @@ function closeAuthModal() {
     if (authModal) authModal.hide();
 }
 
-function handleFormSubmit(event, formTitle) {
-    event.preventDefault();
-    const formElement = event.target;
-    const formData = new FormData(formElement);
-    const dataObj = Object.fromEntries(formData.entries());
-    console.group(`🚀 [BACKEND SİMÜLASYONU] ${formTitle} Formu Gönderildi`);
-    console.log('Form ID:', formElement.id);
-    console.log('Rol:', dataObj.role || 'Bilinmiyor');
-    console.log('Form Verileri (FormData Object):', dataObj);
-    console.log('Backend API JSON Gönderim Formatı:', JSON.stringify(dataObj, null, 2));
-    console.groupEnd();
-
-
-    closeAuthModal();
-
-    const roleText = dataObj.role === 'barber' ? 'Berber (İşletme)' : 'Müşteri';
-    const actionText = formTitle.includes('Register') ? 'kaydı simüle edildi' : 'girişi başarılı';
-    
-    showToast(`✅ ${roleText} ${actionText}! Veriler veritabanına gönderilmeye hazır.`, 'success');
-
-    openDataPreviewModal(formTitle, dataObj);
-
-    formElement.reset();
-}
-
-function handleHeroSearch(event) {
-    event.preventDefault();
-    const formElement = event.target;
-    const formData = new FormData(formElement);
-    const searchObj = Object.fromEntries(formData.entries());
-
-    console.group('🔍 [BERBER ARAMA SORGUSU]');
-    console.log('Filtreleme Kriterleri:', searchObj);
-    console.groupEnd();
-
-    const cityText = searchObj.city ? searchObj.city.toUpperCase() : 'Tüm Şehirler';
-    const districtText = searchObj.district ? searchObj.district.toUpperCase() : 'Tüm İlçeler';
-    const queryText = searchObj.search_query ? `"${searchObj.search_query}"` : 'Tüm Salonlar';
-
-    showToast(`🔎 Berber Araması Yapıldı: ${cityText} / ${districtText} - ${queryText}`, 'info');
-}
-
 function triggerAppointmentSimulation(barberName) {
     openAuthModal('login', 'customer');
-    showToast(`✂️ ${barberName} için randevu alabilmek için lütfen önce Müşteri Girişi yapın.`, 'warning');
-}
-
-function showToast(message, type = 'success') {
-    const container = document.getElementById('toastContainer');
-    if (!container) return;
-
-    const toast = document.createElement('div');
-    toast.className = 'toast-box shadow-lg border rounded-3 p-3 bg-white mb-2 animate-toast-in';
-
-    let icon = '<i class="fa-solid fa-circle-check fs-5 me-2" style="color: var(--accent);"></i>';
-
-    if (type === 'info') {
-        icon = '<i class="fa-solid fa-circle-info fs-5 me-2" style="color: var(--accent);"></i>';
-    } else if (type === 'warning') {
-        icon = '<i class="fa-solid fa-triangle-exclamation fs-5 me-2" style="color: var(--accent);"></i>';
-    }
-
-    toast.innerHTML = `
-        <div class="d-flex align-items-start">
-            <div class="mt-1">${icon}</div>
-            <div class="flex-grow-1 ms-2">
-                <h6 class="fw-extrabold text-uppercase text-dark mb-0" style="font-size: 11px;">BiTraş Bildirimi</h6>
-                <p class="text-muted text-xs mb-0 mt-1">${message}</p>
-            </div>
-            <button type="button" class="btn-close btn-sm ms-2" onclick="this.closest('.toast-box').remove()"></button>
-        </div>
-    `;
-
-    container.appendChild(toast);
-
-    setTimeout(() => {
-        if (toast && toast.parentElement) {
-            toast.style.opacity = '0';
-            toast.style.transform = 'translateX(50px)';
-            toast.style.transition = 'all 0.3s ease';
-            setTimeout(() => toast.remove(), 300);
-        }
-    }, 4500);
-}
-
-function openDataPreviewModal(title, dataObj) {
-    const previewContent = document.getElementById('dataPreviewContent');
-    const previewModalEl = document.getElementById('dataPreviewModal');
-
-    if (previewContent && previewModalEl) {
-        previewContent.textContent = JSON.stringify(dataObj, null, 4);
-        const modal = bootstrap.Modal.getOrCreateInstance(previewModalEl);
-        modal.show();
-    }
-}
-
-function closeDataPreviewModal() {
-    const previewModalEl = document.getElementById('dataPreviewModal');
-    if (previewModalEl) {
-        const modal = bootstrap.Modal.getInstance(previewModalEl);
-        if (modal) modal.hide();
-    }
 }

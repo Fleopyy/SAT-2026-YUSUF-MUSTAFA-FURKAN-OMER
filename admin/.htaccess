@@ -1,0 +1,25 @@
+# ============================================================
+# BiTıraş.com — Admin Panel Güvenlik ve URL Yönlendirmeleri
+# ============================================================
+
+Options -Indexes +FollowSymLinks
+RewriteEngine On
+
+# Arama motorlarının admin panelini dizine eklemesini kesin olarak engelle
+<IfModule mod_headers.c>
+    Header set X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"
+    Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header set Pragma "no-cache"
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+
+# /admin/dashboard -> dashboard.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^dashboard/?$ dashboard.php [L,QSA]
+
+# /admin/login -> login.php
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^login/?$ login.php [L,QSA]

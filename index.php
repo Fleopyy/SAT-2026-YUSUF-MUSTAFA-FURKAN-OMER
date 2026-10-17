@@ -4,44 +4,145 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 require_once __DIR__ . '/data/database.php';
 
+$s = [];
+try {
+    $stmtSettings = $pdo->query("SELECT anahtar, deger FROM site_ayarlari");
+    while ($row = $stmtSettings->fetch(PDO::FETCH_ASSOC)) {
+        $s[$row['anahtar']] = $row['deger'];
+    }
+} catch (Exception $e) {
+}
+
 $flashMessage = $_SESSION['mesaj'] ?? null;
 $flashMessageType = $_SESSION['mesaj_turu'] ?? 'info';
 unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
 
 $authenticatedName = null;
+$isAuthenticatedBarber = false;
+$authenticatedCustomerPhoto = null;
 if (($_SESSION['user_role'] ?? '') === 'customer' && !empty($_SESSION['user_id'])) {
     $authenticatedName = $_SESSION['user_name'] ?? null;
+    $stmtCustomerPhoto = $pdo->prepare('SELECT fotograf_yolu FROM kullanici_portal_profilleri WHERE kullanici_id = ?');
+    $stmtCustomerPhoto->execute([(int)$_SESSION['user_id']]);
+    $authenticatedCustomerPhoto = $stmtCustomerPhoto->fetchColumn() ?: null;
 } elseif (($_SESSION['user_role'] ?? '') === 'barber' && !empty($_SESSION['barber_id'])) {
     $authenticatedName = $_SESSION['barber_name'] ?? null;
+    $isAuthenticatedBarber = true;
 }
 
-// Dinamik istatistikler
 $totalBarbers = 0;
 $totalAppointments = 0;
-$avgRating = '4.9';
+$avgRating = '—';
+$featuredBusinesses = [];
+$featuredServices = [];
+$availableLocations = [];
+$availableBusinessServices = [];
+$locationDataset = json_decode(file_get_contents(__DIR__ . '/data/turkey_districts.json'), true, 512, JSON_THROW_ON_ERROR);
+$turkeyDistricts = $locationDataset['districts'];
+$searchPerformed = ($_GET['ara'] ?? '') === '1';
+$searchCity = is_string($_GET['sehir'] ?? null) ? trim($_GET['sehir']) : '';
+$searchDistrict = is_string($_GET['ilce'] ?? null) ? trim($_GET['ilce']) : '';
+$searchTerm = is_string($_GET['hizmet'] ?? null) ? trim($_GET['hizmet']) : '';
+$searchCity = mb_substr($searchCity, 0, 100, 'UTF-8');
+$searchDistrict = mb_substr($searchDistrict, 0, 100, 'UTF-8');
+$searchTerm = mb_substr($searchTerm, 0, 100, 'UTF-8');
+
+$searchLocations = $turkeyDistricts;
+$normalizeLocationName = static function (string $name): string {
+    return strtr(mb_strtolower(trim($name), 'UTF-8'), [
+        'ı' => 'i',
+        'ş' => 's',
+        'ğ' => 'g',
+        'ü' => 'u',
+        'ö' => 'o',
+        'ç' => 'c',
+    ]);
+};
+$knownCityKeys = [];
+foreach (array_keys($searchLocations) as $city) {
+    $knownCityKeys[$normalizeLocationName($city)] = $city;
+}
 
 try {
-    $stmt = $pdo->query("SELECT COUNT(*) FROM isletmeler");
+    $locationStmt = $pdo->query("SELECT DISTINCT sehir, ilce FROM isletmeler
+                                 WHERE sehir <> '' AND ilce <> ''
+                                 ORDER BY sehir, ilce");
+    foreach ($locationStmt->fetchAll(PDO::FETCH_ASSOC) as $location) {
+        $cityKey = $knownCityKeys[$normalizeLocationName($location['sehir'])] ?? $location['sehir'];
+        $searchLocations[$cityKey][] = $location['ilce'];
+    }
+    foreach ($searchLocations as &$districts) {
+        $districts = array_values(array_unique($districts));
+    }
+    unset($districts);
+    $availableBusinessServices = $pdo->query("SELECT DISTINCT h.hizmet_adi
+                                               FROM hizmetler h
+                                               INNER JOIN isletmeler i ON i.id = h.isletme_id
+                                               WHERE i.durum = 'active' AND h.aktif_mi = 1
+                                               ORDER BY h.hizmet_adi")->fetchAll(PDO::FETCH_COLUMN);
+
+    $stmt = $pdo->query("SELECT COUNT(*) FROM isletmeler WHERE durum = 'active'");
     $totalBarbers = (int) $stmt->fetchColumn();
-    if ($totalBarbers === 0) {
-        $totalBarbers = 120;
-    }
 
-    $stmt = $pdo->query("SELECT COUNT(*) FROM randevular");
+    $stmt = $pdo->query("SELECT COUNT(*) FROM randevular WHERE durum = 'completed'");
     $totalAppointments = (int) $stmt->fetchColumn();
-    if ($totalAppointments === 0) {
-        $totalAppointments = 850;
-    }
 
-    $stmt = $pdo->query("SELECT AVG(puan) FROM degerlendirmeler");
+    $stmt = $pdo->query("SELECT AVG(d.puan) FROM degerlendirmeler d
+                         INNER JOIN randevular r ON r.id = d.randevu_id
+                         INNER JOIN isletmeler i ON i.id = r.isletme_id
+                         WHERE d.degerlendiren_turu = 'customer' AND i.durum = 'active'");
     $avg = $stmt->fetchColumn();
-    if ($avg) {
+    if ($avg !== false && $avg !== null) {
         $avgRating = number_format((float)$avg, 1);
     }
-} catch (Exception $e) {
-    $totalBarbers = 120;
-    $totalAppointments = 850;
-    $avgRating = '4.9';
+    $businessConditions = ["i.durum = 'active'"];
+    $businessParams = [];
+    if ($searchPerformed && $searchCity !== '') {
+        $businessConditions[] = 'i.sehir = ?';
+        $businessParams[] = $searchCity;
+    }
+    if ($searchPerformed && $searchDistrict !== '') {
+        $businessConditions[] = 'i.ilce = ?';
+        $businessParams[] = $searchDistrict;
+    }
+    if ($searchPerformed && $searchTerm !== '') {
+        $businessConditions[] = 'EXISTS (
+            SELECT 1 FROM hizmetler search_h
+            WHERE search_h.isletme_id = i.id AND search_h.aktif_mi = 1 AND search_h.hizmet_adi LIKE ?
+        )';
+        $businessParams[] = '%' . $searchTerm . '%';
+    }
+    $businessSql = "SELECT i.id, i.isletme_adi, i.isletme_sahibi, i.sehir, i.ilce, i.tam_adres, i.aciklama,
+                                COALESCE(r.rating, 0) AS rating, COALESCE(r.review_count, 0) AS review_count,
+                                cover.fotograf_yolu AS cover_photo, profile.fotograf_yolu AS profile_photo
+                         FROM isletmeler i
+                         LEFT JOIN (
+                             SELECT a.isletme_id, AVG(d.puan) AS rating, COUNT(d.id) AS review_count
+                             FROM randevular a INNER JOIN degerlendirmeler d ON d.randevu_id = a.id
+                             WHERE d.degerlendiren_turu = 'customer' GROUP BY a.isletme_id
+                         ) r ON r.isletme_id = i.id
+                         LEFT JOIN isletme_panel_medya m ON m.isletme_id = i.id
+                         LEFT JOIN isletme_fotograflari cover ON cover.id = m.kapak_fotograf_id AND cover.isletme_id = i.id
+                         LEFT JOIN isletme_fotograflari profile ON profile.id = m.profil_fotograf_id AND profile.isletme_id = i.id
+                         WHERE " . implode(' AND ', $businessConditions) . "
+                         ORDER BY rating DESC, i.isletme_adi";
+    if (!$searchPerformed) {
+        $businessSql .= ' LIMIT 12';
+    }
+    $stmt = $pdo->prepare($businessSql);
+    $stmt->execute($businessParams);
+    $featuredBusinesses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if ($featuredBusinesses) {
+        $businessIds = array_column($featuredBusinesses, 'id');
+        $placeholders = implode(',', array_fill(0, count($businessIds), '?'));
+        $serviceStmt = $pdo->prepare("SELECT id, isletme_id, hizmet_adi, fiyat FROM hizmetler WHERE aktif_mi = 1 AND isletme_id IN ($placeholders) ORDER BY hizmet_adi");
+        $serviceStmt->execute($businessIds);
+        foreach ($serviceStmt->fetchAll(PDO::FETCH_ASSOC) as $service) {
+            $featuredServices[(int)$service['isletme_id']][] = $service;
+        }
+    }
+} catch (Throwable $e) {
+    error_log('Public business listing could not be loaded: ' . $e->getMessage());
 }
 ?>
 <!DOCTYPE html>
@@ -50,9 +151,9 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BiTıraş | Premium Berber & Erkek Kuaförü Randevu Sistemi</title>
+    <title><?= htmlspecialchars($s['site_baslik'] ?? 'BiTıraş | Premium Berber & Erkek Kuaförü Randevu Sistemi', ENT_QUOTES, 'UTF-8') ?></title>
     <meta name="description"
-        content="Türkiye'nin en seçkin berber ve erkek kuaförlerinden anında online randevu alın. Sıra beklemeden tarzınızı keşfedin.">
+        content="<?= htmlspecialchars($s['site_aciklama'] ?? 'Türkiye\'nin en seçkin berber ve erkek kuaförlerinden anında online randevu alın. Sıra beklemeden tarzınızı keşfedin.', ENT_QUOTES, 'UTF-8') ?>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -63,16 +164,162 @@ try {
         integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
 
 
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=<?= time() ?>">
+    <style>
+    .bitiras-toast-container {
+        position: fixed !important;
+        top: 88px !important;
+        right: 24px !important;
+        z-index: 999999 !important;
+        pointer-events: none !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 12px !important;
+    }
+    .bitiras-toast {
+        pointer-events: auto !important;
+        position: relative !important;
+        display: flex !important;
+        align-items: flex-start !important;
+        gap: 14px !important;
+        min-width: 320px !important;
+        max-width: 420px !important;
+        padding: 16px 18px 16px 16px !important;
+        background: #FFFFFF !important;
+        border-radius: 16px !important;
+        box-shadow: 0 20px 45px -10px rgba(15, 23, 42, 0.25), 0 6px 18px -3px rgba(15, 23, 42, 0.1) !important;
+        border: 1px solid #E2E8F0 !important;
+        overflow: hidden !important;
+        animation: toastSlideIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+        transition: transform 0.25s ease, opacity 0.25s ease, box-shadow 0.25s ease !important;
+        font-family: 'Plus Jakarta Sans', sans-serif !important;
+    }
+    .bitiras-toast:hover {
+        box-shadow: 0 26px 54px -10px rgba(15, 23, 42, 0.3), 0 8px 22px -3px rgba(15, 23, 42, 0.14) !important;
+        transform: translateY(-2px) !important;
+    }
+    .bitiras-toast.toast-hiding {
+        animation: toastSlideOut 0.35s cubic-bezier(0.7, 0, 0.84, 0) forwards !important;
+    }
+    .toast-icon-wrapper {
+        flex-shrink: 0 !important;
+        width: 38px !important;
+        height: 38px !important;
+        border-radius: 12px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 17px !important;
+    }
+    .toast-content {
+        flex: 1 !important;
+        min-width: 0 !important;
+        padding-top: 1px !important;
+    }
+    .toast-title {
+        display: block !important;
+        font-size: 13px !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.2px !important;
+        margin-bottom: 3px !important;
+        line-height: 1.25 !important;
+    }
+    .toast-message {
+        display: block !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        line-height: 1.45 !important;
+        color: #475569 !important;
+        word-break: break-word !important;
+    }
+    .toast-close-btn {
+        flex-shrink: 0 !important;
+        background: transparent !important;
+        border: none !important;
+        color: #94A3B8 !important;
+        cursor: pointer !important;
+        width: 28px !important;
+        height: 28px !important;
+        border-radius: 8px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        font-size: 14px !important;
+        transition: all 0.2s ease !important;
+        margin-top: -2px !important;
+        margin-right: -4px !important;
+        padding: 0 !important;
+    }
+    .toast-close-btn:hover {
+        background: #F1F5F9 !important;
+        color: #0F172A !important;
+    }
+    .toast-progress {
+        position: absolute !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        height: 3px !important;
+        width: 100% !important;
+        background: rgba(0, 0, 0, 0.05) !important;
+    }
+    .toast-progress-bar {
+        height: 100% !important;
+        width: 100% !important;
+        transform-origin: left !important;
+        animation: toastProgress 5s linear forwards !important;
+    }
+    .bitiras-toast:hover .toast-progress-bar {
+        animation-play-state: paused !important;
+    }
+    .bitiras-toast.toast-success { border-left: 4px solid #10B981 !important; }
+    .bitiras-toast.toast-success .toast-icon-wrapper { background: #ECFDF5 !important; color: #059669 !important; }
+    .bitiras-toast.toast-success .toast-title { color: #065F46 !important; }
+    .bitiras-toast.toast-success .toast-progress-bar { background: #10B981 !important; }
+
+    .bitiras-toast.toast-danger { border-left: 4px solid #EF4444 !important; }
+    .bitiras-toast.toast-danger .toast-icon-wrapper { background: #FEF2F2 !important; color: #DC2626 !important; }
+    .bitiras-toast.toast-danger .toast-title { color: #991B1B !important; }
+    .bitiras-toast.toast-danger .toast-progress-bar { background: #EF4444 !important; }
+
+    .bitiras-toast.toast-warning { border-left: 4px solid #F59E0B !important; }
+    .bitiras-toast.toast-warning .toast-icon-wrapper { background: #FFFBEB !important; color: #D97706 !important; }
+    .bitiras-toast.toast-warning .toast-title { color: #92400E !important; }
+    .bitiras-toast.toast-warning .toast-progress-bar { background: #F59E0B !important; }
+
+    .bitiras-toast.toast-info { border-left: 4px solid #3B82F6 !important; }
+    .bitiras-toast.toast-info .toast-icon-wrapper { background: #EFF6FF !important; color: #2563EB !important; }
+    .bitiras-toast.toast-info .toast-title { color: #1E40AF !important; }
+    .bitiras-toast.toast-info .toast-progress-bar { background: #3B82F6 !important; }
+
+    @keyframes toastSlideIn {
+        0% { opacity: 0; transform: translateX(115%) scale(0.94); }
+        70% { transform: translateX(-6px) scale(1.01); }
+        100% { opacity: 1; transform: translateX(0) scale(1); }
+    }
+    @keyframes toastSlideOut {
+        0% { opacity: 1; transform: translateX(0) scale(1); }
+        100% { opacity: 0; transform: translateX(115%) scale(0.92); }
+    }
+    @keyframes toastProgress {
+        from { transform: scaleX(1); }
+        to { transform: scaleX(0); }
+    }
+    @media (max-width: 576px) {
+        .bitiras-toast-container { top: 16px !important; right: 16px !important; left: 16px !important; }
+        .bitiras-toast { min-width: 100% !important; max-width: 100% !important; }
+    }
+    </style>
 </head>
 
 <body>
 
 
+    <?php if (($s['duyuru_aktif'] ?? '0') === '1' && !empty($s['duyuru_bandi'])): ?>
     <div class="bg-dark text-white text-center py-2 px-3 text-xs fw-semibold border-bottom border-secondary">
         <span class="pulse-dot me-2"></span>
-        <span>Sitemiz Yapım Aşamasındadır Yakında Görüşmek Üzere..</span>
+        <span><?= htmlspecialchars($s['duyuru_bandi'], ENT_QUOTES, 'UTF-8') ?></span>
     </div>
+    <?php endif; ?>
 
 
     <nav class="navbar navbar-expand-lg bg-white navbar-light sticky-top shadow-sm py-3">
@@ -115,12 +362,38 @@ try {
 
                 <div class="d-flex align-items-center gap-2 pt-3 pt-lg-0">
                     <?php if ($authenticatedName !== null): ?>
-                        <span class="fw-semibold text-dark">
-                            <i class="fa-solid fa-circle-user me-2" style="color: var(--accent);"></i><?= htmlspecialchars($authenticatedName, ENT_QUOTES, 'UTF-8') ?>
-                        </span>
-                        <a class="btn btn-outline-dark px-4 py-2" href="login.php?action=logout">
-                            <i class="fa-solid fa-right-from-bracket me-2"></i>Çıkış Yap
-                        </a>
+                        <details class="account-menu">
+                            <summary class="account-menu-trigger">
+                                <?php if (($_SESSION['user_role'] ?? '') === 'customer' && $authenticatedCustomerPhoto): ?>
+                                    <img class="account-menu-avatar" src="/<?= htmlspecialchars($authenticatedCustomerPhoto, ENT_QUOTES, 'UTF-8') ?>" alt="">
+                                <?php else: ?>
+                                    <i class="fa-solid fa-circle-user" aria-hidden="true"></i>
+                                <?php endif; ?>
+                                <span><?= htmlspecialchars($authenticatedName, ENT_QUOTES, 'UTF-8') ?></span>
+                                <i class="fa-solid fa-chevron-down account-menu-chevron" aria-hidden="true"></i>
+                            </summary>
+                            <div class="account-menu-dropdown">
+                                <?php if ($isAuthenticatedBarber): ?>
+                                    <a class="account-menu-item" href="/isletme/">
+                                        <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
+                                        İşletme Paneline Git
+                                    </a>
+                                <?php elseif (($_SESSION['user_role'] ?? '') === 'customer' && !empty($_SESSION['user_id'])): ?>
+                                    <a class="account-menu-item" href="/musteri/randevularim.php">
+                                        <i class="fa-regular fa-calendar-check" aria-hidden="true"></i>
+                                        Randevularım
+                                    </a>
+                                    <a class="account-menu-item" href="/musteri/hesabim.php">
+                                        <i class="fa-regular fa-user" aria-hidden="true"></i>
+                                        Hesabım
+                                    </a>
+                                <?php endif; ?>
+                                <a class="account-menu-item account-menu-logout" href="login.php?action=logout">
+                                    <i class="fa-solid fa-right-from-bracket" aria-hidden="true"></i>
+                                    Çıkış Yap
+                                </a>
+                            </div>
+                        </details>
                     <?php else: ?>
                         <button class="btn btn-outline-dark px-4 py-2" onclick="openAuthModal('login')">
                             <i class="fa-solid fa-right-to-bracket me-2" style="color: var(--accent);"></i>Giriş Yap
@@ -136,12 +409,62 @@ try {
     </nav>
 
     <?php if ($flashMessage !== null): ?>
-        <div class="container mt-3" role="status">
-            <div class="alert alert-<?= htmlspecialchars($flashMessageType, ENT_QUOTES, 'UTF-8') ?> alert-dismissible fade show mb-0" role="alert">
-                <?= htmlspecialchars($flashMessage, ENT_QUOTES, 'UTF-8') ?>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Kapat"></button>
+        <?php
+        $toastType = in_array($flashMessageType, ['success', 'danger', 'warning', 'info']) ? $flashMessageType : 'info';
+        $toastIcon = match($toastType) {
+            'success' => 'fa-circle-check',
+            'danger' => 'fa-circle-xmark',
+            'warning' => 'fa-triangle-exclamation',
+            default => 'fa-circle-info'
+        };
+        $toastTitle = match($toastType) {
+            'success' => 'İşlem Başarılı',
+            'danger' => 'İşlem Başarısız',
+            'warning' => 'Dikkat',
+            default => 'Bilgilendirme'
+        };
+        ?>
+        <div class="bitiras-toast-container" role="status" aria-live="polite">
+            <div id="bitirasToast" class="bitiras-toast toast-<?= $toastType ?>" role="alert">
+                <div class="toast-icon-wrapper">
+                    <i class="fa-solid <?= $toastIcon ?>"></i>
+                </div>
+                <div class="toast-content">
+                    <span class="toast-title"><?= $toastTitle ?></span>
+                    <span class="toast-message"><?= htmlspecialchars($flashMessage, ENT_QUOTES, 'UTF-8') ?></span>
+                </div>
+                <button type="button" class="toast-close-btn" onclick="dismissBitirasToast()" aria-label="Bildirimi Kapat">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+                <div class="toast-progress">
+                    <div class="toast-progress-bar"></div>
+                </div>
             </div>
         </div>
+        <script>
+            function dismissBitirasToast() {
+                const toast = document.getElementById('bitirasToast');
+                if (!toast) return;
+                toast.classList.add('toast-hiding');
+                setTimeout(() => {
+                    const container = toast.closest('.bitiras-toast-container');
+                    if (container) container.remove();
+                    else toast.remove();
+                }, 340);
+            }
+
+                                              
+            (function() {
+                let autoTimer = setTimeout(dismissBitirasToast, 5000);
+                const toast = document.getElementById('bitirasToast');
+                if (toast) {
+                    toast.addEventListener('mouseenter', () => clearTimeout(autoTimer));
+                    toast.addEventListener('mouseleave', () => {
+                        autoTimer = setTimeout(dismissBitirasToast, 2500);
+                    });
+                }
+            })();
+        </script>
     <?php endif; ?>
 
     <main>
@@ -164,72 +487,64 @@ try {
 
 
                     <h1 class="display-4 fw-extrabold text-white tracking-tight mb-3" style="text-shadow: 0 2px 10px rgba(0,0,0,0.55);">
-                        Tarzını Keşfet, <br class="d-none d-sm-inline">
-                        <span style="color: #E5A955;">Sıra Beklemeden</span> Randevunu Al
+                        <?= htmlspecialchars($s['hero_baslik'] ?? 'Tarzını Keşfet, Sıra Beklemeden Randevunu Al', ENT_QUOTES, 'UTF-8') ?>
                     </h1>
                     <p class="lead text-white fw-medium mx-auto" style="max-width: 720px; opacity: 0.92; text-shadow: 0 1px 6px rgba(0,0,0,0.55);">
-                        Şehrinizdeki en iyi erkek kuaförlerini ve VIP berber salonlarını karşılaştırın, dakikalar
-                        içinde
-                        boş koltuğunuzu ayırtın.
+                        <?= htmlspecialchars($s['hero_aciklama'] ?? 'Şehrinizdeki en iyi erkek kuaförlerini ve VIP berber salonlarını karşılaştırın, dakikalar içinde boş koltuğunuzu ayırtın.', ENT_QUOTES, 'UTF-8') ?>
                     </p>
                 </div>
 
                 <div class="w-100">
-                    <form id="heroSearchForm" onsubmit="handleHeroSearch(event)"
-                        class="bg-white p-4 p-md-5 rounded-4 shadow-lg border">
+                    <form id="heroSearchForm" method="GET" action="/index.php#barbers"
+                        class="hero-search-form p-4 p-md-5 rounded-4 shadow-lg">
+                        <input type="hidden" name="ara" value="1">
                         <div class="row g-3 align-items-end">
 
 
                             <div class="col-md-3">
-                                <label for="searchCity" class="form-label text-uppercase text-muted fw-extrabold"
-                                    style="font-size: 11px;">
+                                <label for="searchCity" class="hero-search-label form-label text-uppercase fw-extrabold">
                                     <i class="fa-solid fa-location-dot me-1" style="color: var(--accent);"></i>
                                     Şehir
                                 </label>
-                                <select id="searchCity" name="sehir"
-                                    onchange="updateDistrictOptions(this.value, 'searchDistrict')"
-                                    class="form-select form-select-lg fs-6 fw-semibold">
-                                    <option value="">Tüm Şehirler</option>
-                                    <option value="istanbul">İstanbul</option>
-                                    <option value="ankara">Ankara</option>
-                                    <option value="izmir">İzmir</option>
-                                    <option value="bursa">Bursa</option>
-                                    <option value="antalya">Antalya</option>
-                                </select>
+                                <div class="hero-search-autocomplete">
+                                    <input id="searchCity" name="sehir" type="text" role="combobox" aria-autocomplete="list"
+                                        aria-expanded="false" aria-controls="searchCityOptions" autocomplete="off"
+                                        value="<?= htmlspecialchars($searchCity, ENT_QUOTES, 'UTF-8') ?>"
+                                        placeholder="Tüm şehirler" class="form-control form-control-lg fs-6 fw-semibold">
+                                    <div id="searchCityOptions" class="hero-search-options" role="listbox" hidden></div>
+                                    <i class="fa-solid fa-chevron-down hero-search-chevron" aria-hidden="true"></i>
+                                </div>
                             </div>
 
 
                             <div class="col-md-3">
-                                <label for="searchDistrict" class="form-label text-uppercase text-muted fw-extrabold"
-                                    style="font-size: 11px;">
+                                <label for="searchDistrict" class="hero-search-label form-label text-uppercase fw-extrabold">
                                     <i class="fa-solid fa-map-pin me-1" style="color: var(--accent);"></i> İlçe
                                 </label>
-                                <select id="searchDistrict" name="ilce"
-                                    class="form-select form-select-lg fs-6 fw-semibold">
-                                    <option value="">Önce Şehir Seçin</option>
-                                </select>
+                                <div class="hero-search-autocomplete">
+                                    <input id="searchDistrict" name="ilce" type="text" role="combobox" aria-autocomplete="list"
+                                        aria-expanded="false" aria-controls="searchDistrictOptions" autocomplete="off"
+                                        value="<?= htmlspecialchars($searchDistrict, ENT_QUOTES, 'UTF-8') ?>"
+                                        placeholder="Tüm ilçeler" class="form-control form-control-lg fs-6 fw-semibold">
+                                    <div id="searchDistrictOptions" class="hero-search-options" role="listbox" hidden></div>
+                                    <i class="fa-solid fa-chevron-down hero-search-chevron" aria-hidden="true"></i>
+                                </div>
                             </div>
 
 
                             <div class="col-md-4">
-                                <label for="hizmetler" class="form-label text-uppercase text-muted fw-extrabold"
-                                    style="font-size: 11px;">
-                                    <i class="fa-solid fa-store me-1" style="color: var(--accent);"></i> Salon veya
-                                    Hizmet
+                                <label for="hizmetler" class="hero-search-label form-label text-uppercase fw-extrabold">
+                                    <i class="fa-solid fa-scissors me-1" style="color: var(--accent);"></i> Hizmetler
                                 </label>
-                                <select id="hizmetler" name="hizmet"
-                                    class="form-select form-select-lg fs-6 fw-semibold">
-                                    <option value="">Tüm Hizmetler</option>
-                                    <option value="Fön">Fön</option>
-                                    <option value="Saç Kesimi">Saç Kesimi</option>
-                                    <option value="Sakal Traşı">Sakal Traşı</option>
-                                    <option value="Bıyık Kesimi">Bıyık Kesimi</option>
-                                    <option value="Erkek Saç Kesimi">Erkek Saç Kesimi</option>
-                                    <option value="Kadın Saç Kesimi">Kadın Saç Kesimi</option>
-                                    <option value="Çocuk Saç Kesimi">Çocuk Saç Kesimi</option>
-                                </select>
-
-                                
+                                <div class="hero-search-autocomplete">
+                                    <input id="hizmetler" name="hizmet" type="text" role="combobox" aria-autocomplete="list"
+                                        aria-expanded="false" aria-controls="businessServiceOptions" autocomplete="off"
+                                    value="<?= htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8') ?>"
+                                    placeholder="Tüm hizmetler"
+                                    class="form-control form-control-lg fs-6 fw-semibold">
+                                    <div id="businessServiceOptions" class="hero-search-options" role="listbox" hidden></div>
+                                    <i class="fa-solid fa-chevron-down hero-search-chevron" aria-hidden="true"></i>
+                                </div>
                             </div>
 
 
@@ -246,33 +561,26 @@ try {
                 </div>
 
                 <div class="row g-3 mt-4 mt-lg-5 w-100 mx-0">
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-4">
                         <div class="card border text-center p-3 rounded-4 shadow-sm h-100">
-                            <div class="fs-2 fw-extrabold text-dark"><?php echo htmlspecialchars($totalBarbers ?? 120); ?><span style="color: var(--accent);">+</span>
+                            <div class="fs-2 fw-extrabold text-dark"><?php echo htmlspecialchars((string)$totalBarbers, ENT_QUOTES, 'UTF-8'); ?>
                             </div>
                             <div class="text-muted fw-semibold" style="font-size: 12px;">Kayıtlı Berber Salonu</div>
                         </div>
                     </div>
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-4">
                         <div class="card border text-center p-3 rounded-4 shadow-sm h-100">
-                            <div class="fs-2 fw-extrabold text-dark"><?php echo htmlspecialchars($totalAppointments ?? 850); ?><span style="color: var(--accent);">+</span>
+                            <div class="fs-2 fw-extrabold text-dark"><?php echo htmlspecialchars((string)$totalAppointments, ENT_QUOTES, 'UTF-8'); ?>
                             </div>
                             <div class="text-muted fw-semibold" style="font-size: 12px;">Tamamlanan Randevu</div>
                         </div>
                     </div>
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-4">
                         <div class="card border text-center p-3 rounded-4 shadow-sm h-100">
-                            <div class="fs-2 fw-extrabold text-dark"><?php echo htmlspecialchars($avgRating ?? '4.9'); ?> <span
+                            <div class="fs-2 fw-extrabold text-dark"><?php echo htmlspecialchars((string)$avgRating, ENT_QUOTES, 'UTF-8'); ?> <span
                                     style="color: var(--accent); font-size: 16px;">/ 5.0</span></div>
                             <div class="text-muted fw-semibold" style="font-size: 12px;">Müşteri Puan Ortalaması
                             </div>
-                        </div>
-                    </div>
-                    <div class="col-6 col-md-3">
-                        <div class="card border text-center p-3 rounded-4 shadow-sm h-100">
-                            <div class="fs-2 fw-extrabold text-dark"><span style="color: var(--accent);">%</span>100
-                            </div>
-                            <div class="text-muted fw-semibold" style="font-size: 12px;">Anında Onaylı Randevu</div>
                         </div>
                     </div>
                 </div>
@@ -290,9 +598,17 @@ try {
                                 style="width: 8px; height: 8px; background-color: var(--accent);"></span> Vitrin
                             Salonlar
                         </div>
-                        <h2 class="fs-2 fw-extrabold text-dark mb-0">Öne Çıkan Berber Salonları</h2>
-                        <p class="text-muted mb-0" style="font-size: 14px;">En yüksek puanlı ve müşteriler tarafından en
-                            çok tercih edilen kuaförler</p>
+                        <h2 class="fs-2 fw-extrabold text-dark mb-0"><?= $searchPerformed ? 'Arama Sonuçları' : 'Öne Çıkan Berber Salonları' ?></h2>
+                        <p class="text-muted mb-0" style="font-size: 14px;">
+                            <?php if ($searchPerformed): ?>
+                                <?= $searchCity !== '' ? htmlspecialchars($searchCity, ENT_QUOTES, 'UTF-8') : 'Tüm şehirler' ?>
+                                <?= $searchDistrict !== '' ? ' · ' . htmlspecialchars($searchDistrict, ENT_QUOTES, 'UTF-8') : '' ?>
+                                <?= $searchTerm !== '' ? ' · "' . htmlspecialchars($searchTerm, ENT_QUOTES, 'UTF-8') . '"' : '' ?>
+                                konum ve arama kriterlerine uygun işletmeler
+                            <?php else: ?>
+                                En yüksek puanlı ve müşteriler tarafından en çok tercih edilen kuaförler
+                            <?php endif; ?>
+                        </p>
                     </div>
 
                     <div class="d-flex gap-2 overflow-auto pt-3 pt-md-0">
@@ -302,160 +618,33 @@ try {
                         <button class="btn btn-outline-dark btn-sm rounded-3 px-3">Gece Açık</button>
                     </div>
                 </div>
-
                 <div class="row g-4">
-
-                    <div class="col-lg-4 col-md-6">
-                        <div class="card h-100 border rounded-4 overflow-hidden card-hover shadow-sm">
-                            <div class="position-relative" style="height: 220px;">
-                                <img src="https://images.unsplash.com/photo-1503951914875-452162b0f3f1?q=80&w=800&auto=format&fit=crop"
-                                    alt="Makas & Sakal Luxury Cut" class="w-100 h-100 object-fit-cover">
-                                <span
-                                    class="position-absolute top-0 start-0 m-3 badge badge-dark-custom uppercase tracking-wider">VIP
-                                    SALON</span>
-                                <span class="position-absolute top-0 end-0 m-3 badge badge-dark-custom">
-                                    <i class="fa-solid fa-star me-1" style="color: var(--accent);"></i> 4.9 <span
-                                        class="text-muted fw-normal">(142)</span>
-                                </span>
-                                <span class="position-absolute bottom-0 start-0 m-3 text-white fw-bold text-xs">
-                                    <i class="fa-solid fa-location-dot me-1" style="color: var(--accent);"></i>
-                                    İstanbul, Kadıköy / Moda
-                                </span>
-                            </div>
-                            <div class="card-body d-flex flex-column justify-between p-4">
-                                <div>
-                                    <h3 class="fs-5 fw-extrabold text-dark mb-1">Makas & Sakal Luxury Studio</h3>
-                                    <p class="text-muted text-xs mb-3">Baş Berberi: <span
-                                            class="text-dark fw-semibold">Ahmet Yılmaz (12 Yıl Tecrübe)</span></p>
-
-                                    <div class="pt-3 border-top">
-                                        <div class="text-uppercase text-muted fw-extrabold mb-2"
-                                            style="font-size: 11px;">Öne Çıkan Hizmetler</div>
-                                        <div class="d-flex flex-wrap gap-1">
-                                            <span class="badge bg-light text-dark fw-semibold p-2">Saç Kesimi &
-                                                Yıkama</span>
-                                            <span class="badge bg-light text-dark fw-semibold p-2">Sakal Tasarım</span>
-                                            <span class="badge bg-light text-dark fw-semibold p-2">Sıcak Havlu
-                                                Bakımı</span>
-                                        </div>
+                    <?php if (!$featuredBusinesses): ?>
+                        <div class="col-12"><div class="empty-state"><h4><?= $searchPerformed ? 'Bu konumda eşleşen berber bulunamadı' : 'Şu anda yayında işletme bulunmuyor' ?></h4><p><?= $searchPerformed ? 'Farklı bir şehir, ilçe veya hizmet seçip tekrar arayabilirsin.' : 'Yeni onaylanan işletmeler burada görüntülenecek.' ?></p></div></div>
+                    <?php else: foreach ($featuredBusinesses as $featuredBusiness):
+                        $imagePath = $featuredBusiness['cover_photo'] ?: $featuredBusiness['profile_photo'];
+                        $businessServices = $featuredServices[(int)$featuredBusiness['id']] ?? [];
+                    ?>
+                        <div class="col-lg-4 col-md-6">
+                            <article class="card h-100 border rounded-4 overflow-hidden card-hover shadow-sm">
+                                <a href="/berber.php?id=<?= (int)$featuredBusiness['id'] ?>" class="text-decoration-none text-dark">
+                                    <div class="position-relative" style="height:220px;background:#1E293B;">
+                                        <?php if ($imagePath): ?><img src="/<?= htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($featuredBusiness['isletme_adi'], ENT_QUOTES, 'UTF-8') ?>" class="w-100 h-100 object-fit-cover"><?php else: ?><div class="w-100 h-100 d-flex align-items-center justify-content-center text-white"><i class="fa-solid fa-scissors fa-3x"></i></div><?php endif; ?>
+                                        <span class="position-absolute top-0 end-0 m-3 badge badge-dark-custom"><i class="fa-solid fa-star me-1" style="color:var(--accent)"></i><?= $featuredBusiness['review_count'] ? number_format((float)$featuredBusiness['rating'],1) : 'Yeni' ?> <span class="text-muted fw-normal">(<?= (int)$featuredBusiness['review_count'] ?>)</span></span>
+                                        <span class="position-absolute bottom-0 start-0 m-3 text-white fw-bold text-xs"><i class="fa-solid fa-location-dot me-1" style="color:var(--accent)"></i><?= htmlspecialchars($featuredBusiness['sehir'] . ', ' . $featuredBusiness['ilce'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
-                                </div>
-
-                                <div class="pt-3 border-top d-flex justify-content-between align-items-center mt-4">
-                                    <span class="text-muted fw-semibold" style="font-size: 12px;">
-                                        <span class="d-inline-block rounded-circle bg-success me-1"
-                                            style="width: 8px; height: 8px;"></span> Bugüne Uygun Seans Var
-                                    </span>
-                                    <button onclick="triggerAppointmentSimulation('Makas & Sakal Luxury Studio')"
-                                        class="btn btn-outline-amber btn-sm">
-                                        Randevu Al <i class="fa-solid fa-arrow-right ms-1"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="col-lg-4 col-md-6">
-                        <div class="card h-100 border rounded-4 overflow-hidden card-hover shadow-sm">
-                            <div class="position-relative" style="height: 220px;">
-                                <img src="https://images.unsplash.com/photo-1622286342621-4bd786c2447c?q=80&w=800&auto=format&fit=crop"
-                                    alt="Vintage Gentlemen Barbershop" class="w-100 h-100 object-fit-cover">
-                                <span
-                                    class="position-absolute top-0 start-0 m-3 badge badge-dark-custom uppercase tracking-wider">POPÜLER</span>
-                                <span class="position-absolute top-0 end-0 m-3 badge badge-dark-custom">
-                                    <i class="fa-solid fa-star me-1" style="color: var(--accent);"></i> 4.8 <span
-                                        class="text-muted fw-normal">(98)</span>
-                                </span>
-                                <span class="position-absolute bottom-0 start-0 m-3 text-white fw-bold text-xs">
-                                    <i class="fa-solid fa-location-dot me-1" style="color: var(--accent);"></i> Ankara,
-                                    Çankaya / Tunalı
-                                </span>
-                            </div>
-                            <div class="card-body d-flex flex-column justify-between p-4">
-                                <div>
-                                    <h3 class="fs-5 fw-extrabold text-dark mb-1">Gentlemen Classic Barbershop</h3>
-                                    <p class="text-muted text-xs mb-3">İşletme Sahibi: <span
-                                            class="text-dark fw-semibold">Volkan Can (Klasik Kesim Uzmanı)</span></p>
-
-                                    <div class="pt-3 border-top">
-                                        <div class="text-uppercase text-muted fw-extrabold mb-2"
-                                            style="font-size: 11px;">Öne Çıkan Hizmetler</div>
-                                        <div class="d-flex flex-wrap gap-1">
-                                            <span class="badge bg-light text-dark fw-semibold p-2">Ustura Sakal
-                                                Tıraşı</span>
-                                            <span class="badge bg-light text-dark fw-semibold p-2">Cilt & Maske
-                                                Bakımı</span>
-                                            <span class="badge bg-light text-dark fw-semibold p-2">Çocuk Kesimi</span>
-                                        </div>
+                                    <div class="card-body d-flex flex-column p-4">
+                                        <h3 class="fs-5 fw-extrabold mb-1"><?= htmlspecialchars($featuredBusiness['isletme_adi'], ENT_QUOTES, 'UTF-8') ?></h3>
+                                        <p class="text-muted text-xs mb-3"><?= htmlspecialchars($featuredBusiness['isletme_sahibi'], ENT_QUOTES, 'UTF-8') ?></p>
+                                        <p class="text-muted small"><?= htmlspecialchars(mb_substr($featuredBusiness['aciklama'] ?? '',0,150,'UTF-8'), ENT_QUOTES, 'UTF-8') ?></p>
+                                        <?php if ($businessServices): ?><div class="pt-3 border-top"><div class="text-uppercase text-muted fw-bold mb-2" style="font-size:11px">Aktif hizmetler</div><div class="d-flex flex-wrap gap-1"><?php foreach (array_slice($businessServices,0,3) as $service): ?><span class="badge bg-light text-dark p-2"><?= htmlspecialchars($service['hizmet_adi'], ENT_QUOTES, 'UTF-8') ?> · <?= number_format((float)$service['fiyat'],0,',','.') ?> ₺</span><?php endforeach; ?></div></div><?php endif; ?>
                                     </div>
-                                </div>
-
-                                <div class="pt-3 border-top d-flex justify-content-between align-items-center mt-4">
-                                    <span class="text-muted fw-semibold" style="font-size: 12px;">
-                                        <span class="d-inline-block rounded-circle bg-success me-1"
-                                            style="width: 8px; height: 8px;"></span> 3 Koltuk Müsait
-                                    </span>
-                                    <button onclick="triggerAppointmentSimulation('Gentlemen Classic Barbershop')"
-                                        class="btn btn-outline-amber btn-sm">
-                                        Randevu Al <i class="fa-solid fa-arrow-right ms-1"></i>
-                                    </button>
-                                </div>
-                            </div>
+                                </a>
+                                <div class="px-4 pb-4"><a href="/berber.php?id=<?= (int)$featuredBusiness['id'] ?>" class="btn btn-outline-amber btn-sm">Profili incele <i class="fa-solid fa-arrow-right ms-1"></i></a></div>
+                            </article>
                         </div>
-                    </div>
-
-                    <div class="col-lg-4 col-md-6">
-                        <div class="card h-100 border rounded-4 overflow-hidden card-hover shadow-sm">
-                            <div class="position-relative" style="height: 220px;">
-                                <img src="https://images.unsplash.com/photo-1585747860715-2ba37e788b70?q=80&w=800&auto=format&fit=crop"
-                                    alt="Ege Premium Hair Design" class="w-100 h-100 object-fit-cover">
-                                <span
-                                    class="position-absolute top-0 start-0 m-3 badge badge-dark-custom uppercase tracking-wider">YENİ
-                                    SALON</span>
-                                <span class="position-absolute top-0 end-0 m-3 badge badge-dark-custom">
-                                    <i class="fa-solid fa-star me-1" style="color: var(--accent);"></i> 5.0 <span
-                                        class="text-muted fw-normal">(34)</span>
-                                </span>
-                                <span class="position-absolute bottom-0 start-0 m-3 text-white fw-bold text-xs">
-                                    <i class="fa-solid fa-location-dot me-1" style="color: var(--accent);"></i> İzmir,
-                                    Alsancak / Kordon
-                                </span>
-                            </div>
-                            <div class="card-body d-flex flex-column justify-between p-4">
-                                <div>
-                                    <h3 class="fs-5 fw-extrabold text-dark mb-1">Ege Premium Hair Studio</h3>
-                                    <p class="text-muted text-xs mb-3">Baş Kuaför: <span
-                                            class="text-dark fw-semibold">Mert Ege (Fade Specialist)</span></p>
-
-                                    <div class="pt-3 border-top">
-                                        <div class="text-uppercase text-muted fw-extrabold mb-2"
-                                            style="font-size: 11px;">Öne Çıkan Hizmetler</div>
-                                        <div class="d-flex flex-wrap gap-1">
-                                            <span class="badge bg-light text-dark fw-semibold p-2">Skin Fade
-                                                Kesim</span>
-                                            <span class="badge bg-light text-dark fw-semibold p-2">Keratin Bakımı</span>
-                                            <span class="badge bg-light text-dark fw-semibold p-2">Damat Paketi</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="pt-3 border-top d-flex justify-content-between align-items-center mt-4">
-                                    <span class="text-muted fw-semibold" style="font-size: 12px;">
-                                        <i class="fa-regular fa-clock me-1" style="color: var(--accent);"></i> Gece
-                                        23:00'a Kadar Açık
-                                    </span>
-                                    <button onclick="triggerAppointmentSimulation('Ege Premium Hair Studio')"
-                                        class="btn btn-outline-amber btn-sm">
-                                        Randevu Al <i class="fa-solid fa-arrow-right ms-1"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-
+                    <?php endforeach; endif; ?>
                 </div>
-
             </div>
         </section>
 
@@ -613,7 +802,7 @@ try {
                                 style="color: var(--accent);">.com</span></span>
                     </div>
                     <p class="text-secondary text-sm" style="max-width: 320px;">
-                        Sitemiz Yapım Aşamasındadır Yakında Görüşmek Üzere..
+                        <?= htmlspecialchars($s['footer_metin'] ?? '', ENT_QUOTES, 'UTF-8') ?>
                     </p>
                 </div>
                 <div class="col-6 col-lg-2">
@@ -628,7 +817,7 @@ try {
                 <div class="col-6 col-lg-2">
                     <h5 class="text-white text-uppercase fs-6 fw-bold mb-3">İşletmeler</h5>
                     <ul class="list-unstyled text-sm space-y-2">
-                        <li><a href="javascript:void(0)" onclick="openAuthModal('login', 'barber')"
+                        <li><a href="/isletme/giris.php"
                                 class="text-secondary text-decoration-none">Berber Giriş Paneli</a></li>
                         <li><a href="javascript:void(0)" onclick="openAuthModal('register', 'barber')"
                                 class="text-secondary text-decoration-none">Salon Kaydı Oluştur</a></li>
@@ -636,14 +825,14 @@ try {
                 </div>
                 <div class="col-lg-4">
                     <h5 class="text-white text-uppercase fs-6 fw-bold mb-3">İletişim & Destek</h5>
-                    <p class="text-secondary text-sm mb-1">E-posta: destek@BiTıraş.com</p>
-                    <p class="text-secondary text-sm mb-0">Telefon: 0505 508 5158</p>
+                    <p class="text-secondary text-sm mb-1">E-posta: <?= htmlspecialchars($s['iletisim_eposta'] ?? 'destek@BiTıraş.com', ENT_QUOTES, 'UTF-8') ?></p>
+                    <p class="text-secondary text-sm mb-0">Telefon: <?= htmlspecialchars($s['iletisim_telefon'] ?? '0505 508 5158', ENT_QUOTES, 'UTF-8') ?></p>
                 </div>
             </div>
 
             <div
                 class="pt-4 border-top border-secondary d-flex flex-column flex-sm-row justify-content-between align-items-center text-xs">
-                <p class="mb-2 mb-sm-0">&copy; 2026 BiTıraş.com - Tüm Hakları Saklıdır. (Sistem Analizi Proje Ödevi)</p>
+                <p class="mb-2 mb-sm-0"><?= htmlspecialchars($s['footer_telif'] ?? '© 2026 BiTıraş.com - Tüm Hakları Saklıdır.', ENT_QUOTES, 'UTF-8') ?></p>
                 <div class="fw-bold" style="color: var(--accent);">
                     <i class="fa-solid fa-code me-1"></i> Projected By SAT Team
                 </div>
@@ -686,7 +875,13 @@ try {
         integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
         crossorigin="anonymous"></script>
 
+    <script>window.businessSearchOptions = <?= json_encode([
+        'cities' => array_keys($searchLocations),
+        'locations' => $searchLocations,
+        'services' => $availableBusinessServices,
+    ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;</script>
     <script src="app.js"></script>
+    <?php if (($_GET['login'] ?? '') === 'customer'): ?><script>document.addEventListener('DOMContentLoaded', () => openAuthModal('login', 'customer'));</script><?php endif; ?>
 </body>
 
 </html>
