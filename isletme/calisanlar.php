@@ -89,7 +89,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         businessRedirect('calisanlar.php');
     } catch (Throwable $e) {
         error_log('Business staff action failed: ' . $e->getMessage());
-        $errors[] = $e instanceof RuntimeException ? $e->getMessage() : 'Çalışan kaydedilemedi.';
+        $errors[] = ($e instanceof RuntimeException && !($e instanceof PDOException)) ? $e->getMessage() : 'Çalışan kaydedilemedi.';
     }
 }
 
@@ -121,17 +121,49 @@ include __DIR__ . '/_header.php';
         <?php foreach ($errors as $error): ?><div class="business-notice error"><?= businessEscape($error) ?></div><?php endforeach; ?>
         <form method="POST" enctype="multipart/form-data" class="admin-form">
             <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="save">
-            <div class="business-form-grid">
-                <div class="form-group"><label>Ad soyad</label><input name="name" maxlength="150" required></div>
-                <div class="form-group"><label>Telefon (isteğe bağlı)</label><input name="phone" maxlength="25"></div>
-                <div class="form-group"><label>Uzmanlık / görev</label><input name="specialty" maxlength="180"></div>
-                <div class="form-group"><label>Profil fotoğrafı (JPG/PNG/WEBP, 5 MB)</label><input type="file" name="photo" accept="image/jpeg,image/png,image/webp"></div>
-                <fieldset class="form-group" style="grid-column:1/-1;border:1px solid #E2E8F0;border-radius:8px;padding:14px;"><legend style="font-size:12px;font-weight:700;">Sunabildiği hizmetler</legend>
-                    <?php if (!$services): ?><small>Önce aktif hizmet ekleyin.</small><?php endif; ?>
-                    <?php foreach ($services as $service): ?><label style="display:inline-flex;gap:8px;align-items:center;margin:6px 14px 6px 0;"><input type="checkbox" name="service_ids[]" value="<?= (int)$service['id'] ?>"> <?= businessEscape($service['hizmet_adi']) ?></label><?php endforeach; ?>
+            <div class="business-employee-grid">
+                <div class="form-group">
+                    <label>Ad Soyad</label>
+                    <input name="name" maxlength="150" required placeholder="Örn: Ahmet Yılmaz">
+                </div>
+                <div class="form-group">
+                    <label>Telefon <span class="label-sub">(İsteğe bağlı)</span></label>
+                    <input name="phone" maxlength="25" placeholder="Örn: 0555 123 4567">
+                </div>
+                <div class="form-group">
+                    <label>Uzmanlık / Görev</label>
+                    <input name="specialty" maxlength="180" placeholder="Örn: Saç & Sakal Uzmanı">
+                </div>
+                <div class="form-group">
+                    <label>Profil Fotoğrafı <span class="label-sub">(Max 2 MB)</span></label>
+                    <div class="custom-file-box">
+                        <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" class="custom-file-input">
+                        <div class="custom-file-trigger">
+                            <span class="file-trigger-info">
+                                <i class="fa-solid fa-cloud-arrow-up file-icon"></i>
+                                <span class="file-text" data-default="Fotoğraf seçin...">Fotoğraf seçin...</span>
+                            </span>
+                            <span class="file-browse-btn">Gözat</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div style="margin-top:16px;">
+                <fieldset class="form-group" style="border:1.5px solid #E2E8F0;border-radius:10px;padding:16px;background:#F8FAFC;"><legend style="font-size:12px;font-weight:800;color:var(--admin-text-muted);text-transform:uppercase;letter-spacing:0.5px;padding:0 6px;">Sunabildiği hizmetler</legend>
+                    <?php if (!$services): ?><small style="color:#64748B;">Önce aktif hizmet ekleyin.</small><?php endif; ?>
+                    <div class="services-checkbox-list">
+                        <?php foreach ($services as $service): ?>
+                            <label class="service-checkbox-pill">
+                                <input type="checkbox" name="service_ids[]" value="<?= (int)$service['id'] ?>">
+                                <span><?= businessEscape($service['hizmet_adi']) ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
                 </fieldset>
             </div>
-            <button class="btn-admin primary" type="submit" style="margin-top:18px;"><i class="fa-solid fa-plus"></i> Çalışan ekle</button>
+            <div style="margin-top:20px;display:flex;justify-content:flex-start;">
+                <button class="btn-admin primary" type="submit"><i class="fa-solid fa-user-plus"></i> Çalışan ekle</button>
+            </div>
         </form>
     </div>
 </section>

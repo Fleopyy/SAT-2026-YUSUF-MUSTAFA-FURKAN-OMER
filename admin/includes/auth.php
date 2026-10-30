@@ -5,60 +5,21 @@
    
 
                                         
-if (session_status() === PHP_SESSION_NONE) {
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443);
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path' => '/',
-        'domain' => '',
-        'secure' => $isHttps,
-        'httponly' => true,
-        'samesite' => 'Lax'
-    ]);
-    session_start();
-}
+require_once dirname(__DIR__, 2) . '/data/security.php';
 
                                                                                   
 if (!headers_sent()) {
     header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
-    header("Cache-Control: post-check=0, pre-check=0", false);
     header("Pragma: no-cache");
     header("Expires: Sat, 26 Jul 1997 05:00:00 GMT");
     header("X-Robots-Tag: noindex, nofollow, noarchive, nosnippet");
-    header("X-Frame-Options: SAMEORIGIN");
-    header("X-Content-Type-Options: nosniff");
 }
 
 require_once dirname(__DIR__, 2) . '/data/database.php';
+require_once dirname(__DIR__, 2) . '/data/mail_service.php';
 
                                                                              
                                   
-                                                                                
-
-function generateCsrfToken(): string {
-    if (empty($_SESSION['csrf_token'])) {
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-    }
-    return $_SESSION['csrf_token'];
-}
-
-function verifyCsrfToken(?string $token = null): bool {
-    $token = $token ?? ($_POST['csrf_token'] ?? '');
-    if (empty($token) || empty($_SESSION['csrf_token'])) {
-        return false;
-    }
-    return hash_equals($_SESSION['csrf_token'], $token);
-}
-
-function requireCsrf(): void {
-    if (!verifyCsrfToken()) {
-        http_response_code(403);
-        die(json_encode(['success' => false, 'message' => 'Geçersiz güvenlik tokeni (CSRF). Lütfen sayfayı yenileyip tekrar deneyin.']));
-    }
-}
-
-                                                                             
-                                                          
                                                                                 
 
 function getAllPermissions(): array {
@@ -242,7 +203,7 @@ if (!function_exists('getAdminSidebarItems')) {
                 'label' => 'İçerik Yönetimi',
                 'url' => '/admin/pages/content.php',
                 'icon' => 'fa-solid fa-newspaper',
-                'permission' => 'content.view',
+                'permission' => 'settings.view',
                 'admin_only' => false,
                 'badge_query' => null,
             ],
@@ -501,34 +462,6 @@ function hasPermission(int $managerId, string $permission, bool $skipCache = fal
     $has = (int)$stmt->fetchColumn() > 0;
 
                                                                     
-    if (!$has) {
-        $aliases = [
-            'customers.view'       => ['users.view'],
-            'users.view'           => ['customers.view'],
-            'customers.edit'       => ['users.edit'],
-            'users.edit'           => ['customers.edit'],
-            'media.manage'         => ['business_photos.view', 'business_photos.upload', 'business_photos.delete'],
-            'business_photos.view' => ['media.manage'],
-            'content.manage'       => ['content.view', 'content.edit', 'content.publish', 'settings.view', 'settings.edit'],
-            'content.view'         => ['content.manage'],
-            'applications.view'    => ['businesses.view'],
-            'applications.approve' => ['businesses.approve'],
-            'applications.reject'  => ['businesses.reject'],
-            'audit_logs.view'      => ['logs.view'],
-            'logs.view'            => ['audit_logs.view'],
-        ];
-
-        if (isset($aliases[$permission])) {
-            foreach ($aliases[$permission] as $altPerm) {
-                $stmt->execute([$managerId, $altPerm]);
-                if ((int)$stmt->fetchColumn() > 0) {
-                    $has = true;
-                    break;
-                }
-            }
-        }
-    }
-
     $permCache[$cacheKey] = $has;
     return $has;
 }
@@ -557,7 +490,7 @@ function requirePermission(string $permission): array {
     }
 
     if (!canCurrentUser($permission)) {
-        logAdminAction('forbidden_action_blocked', 'permissions', null, "Yetkisiz işlem engellendi. Gerekli İzin: {$permission}");
+        error_log("forbidden_action_blocked: permission={$permission}; manager=" . (int)($_SESSION['manager_id'] ?? 0));
 
         $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
                   || (isset($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false);
@@ -611,7 +544,23 @@ function getManagerAllowedBusinessIds(int $managerId): ?array {
    
                                                                   
    
+// A scope predicate is independent of the operation permission. null means all; [] means none.
+function currentBusinessScopeSql(string $column, array &$params): string {
+    if (isCurrentUserAdmin()) return '1=1';
+    if (!isCurrentUserManager()) return '1=0';
+    $ids = getManagerAllowedBusinessIds((int)$_SESSION['manager_id']);
+    if ($ids === null) return '1=1';
+    if ($ids === []) return '1=0';
+    $params = array_merge($params, array_map('intval', $ids));
+    return $column . ' IN (' . implode(',', array_fill(0, count($ids), '?')) . ')';
+}
+
 function canAccessBusiness(int $businessId): bool {
+    if (isCurrentUserManager() && !isCurrentUserAdmin() && !canCurrentUser('businesses.view')) return false;
+    return currentBusinessScopeAllows($businessId);
+}
+
+function currentBusinessScopeAllows(int $businessId): bool {
                                        
     if (isset($_SESSION['admin_id']) && ($_SESSION['admin_role'] ?? '') === 'admin') {
         return true;
@@ -624,10 +573,9 @@ function canAccessBusiness(int $businessId): bool {
 
                                      
     if (isset($_SESSION['manager_id']) && ($_SESSION['manager_role'] ?? '') === 'manager') {
-        if (!canCurrentUser('businesses.view')) return false;
         $allowed = getManagerAllowedBusinessIds((int)$_SESSION['manager_id']);
         if ($allowed === null) return true;                           
-        return in_array($businessId, $allowed);
+        return in_array($businessId, array_map('intval', $allowed), true);
     }
 
     return false;
@@ -664,27 +612,18 @@ function createNotification(string $title, string $message, string $type = 'info
     $stmt->execute([$targetManagerId, $title, $message, $type, $link]);
 }
 
-function queueEmail(string $toEmail, ?string $toName, string $subject, string $body): int {
+function queueEmail(string $toEmail, ?string $toName, string $subject, string $body, ?string $idempotencyKey = null, ?string $tur = null): int {
+    if (function_exists('enqueueMail')) {
+        $res = enqueueMail($toEmail, $toName, $subject, $body, $idempotencyKey, $tur);
+        return $res !== false ? (int)$res : 0;
+    }
     global $pdo;
-    
+    if (!$pdo) {
+        return 0;
+    }
     $stmt = $pdo->prepare("INSERT INTO eposta_kuyrugu (alici_eposta, alici_ad, konu, icerik) VALUES (?, ?, ?, ?)");
     $stmt->execute([$toEmail, $toName, $subject, $body]);
     return (int)$pdo->lastInsertId();
-}
-
-function checkLoginRateLimit(string $ip, int $maxAttempts = 5, int $windowMinutes = 0): bool {              
-    global $pdo;
-    
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM giris_denemeleri WHERE ip_adresi = ? AND basarili = 0 AND olusturulma_tarihi > DATE_SUB(NOW(), INTERVAL ? MINUTE)");
-    $stmt->execute([$ip, $windowMinutes]);
-    return (int)$stmt->fetchColumn() < $maxAttempts;
-}
-
-function recordLoginAttempt(string $ip, ?string $email, bool $successful): void {
-    global $pdo;
-    
-    $stmt = $pdo->prepare("INSERT INTO giris_denemeleri (ip_adresi, eposta, basarili) VALUES (?, ?, ?)");
-    $stmt->execute([$ip, $email, $successful ? 1 : 0]);
 }
 
 function e(string $value): string {

@@ -40,13 +40,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             throw new RuntimeException('Randevu durumu aynı anda değişmiş olabilir; yenileyip tekrar deneyin.');
         }
         $pdo->commit();
+
+        try {
+            require_once __DIR__ . '/../data/appointment_notification_service.php';
+            notifyAppointmentStatusChanged((int)$appointmentId, $newStatus, (string)$appointment['durum']);
+        } catch (Throwable $mailEx) {
+            error_log('Business appointment notification error: ' . $mailEx->getMessage());
+        }
         businessFlash('success', 'Randevu durumu güncellendi.');
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
             $pdo->rollBack();
         }
         error_log('Business appointment update failed: ' . $e->getMessage());
-        $errors[] = $e instanceof RuntimeException ? $e->getMessage() : 'Randevu güncellenemedi.';
+        $errors[] = ($e instanceof RuntimeException && !($e instanceof PDOException)) ? $e->getMessage() : 'Randevu güncellenemedi.';
     }
 }
 
@@ -93,11 +100,14 @@ include __DIR__ . '/_header.php';
         <div class="filter-tabs" style="margin-bottom:14px;">
             <?php foreach ($filterLabels as $value => $label): ?><a class="filter-tab <?= $filter === $value ? 'active' : '' ?>" href="/isletme/randevular.php?filter=<?= businessEscape($value) ?>"><?= businessEscape($label) ?></a><?php endforeach; ?>
         </div>
-        <form method="GET" class="business-form-grid admin-form">
+        <form method="GET" class="business-filter-form admin-form">
             <input type="hidden" name="filter" value="<?= businessEscape($filter) ?>">
             <div class="form-group"><label>Başlangıç tarihi</label><input type="date" name="from" value="<?= businessEscape($dateFrom) ?>"></div>
             <div class="form-group"><label>Bitiş tarihi</label><input type="date" name="to" value="<?= businessEscape($dateTo) ?>"></div>
-            <div class="form-group" style="align-self:end"><button class="btn-admin primary">Filtrele</button> <a class="btn-admin outline" href="/isletme/randevular.php">Temizle</a></div>
+            <div class="business-filter-actions">
+                <button type="submit" class="btn-admin primary"><i class="fa-solid fa-filter"></i> Filtrele</button>
+                <a class="btn-admin outline" href="/isletme/randevular.php"><i class="fa-solid fa-rotate-left"></i> Temizle</a>
+            </div>
         </form>
     </div>
 </section>

@@ -12,15 +12,17 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $stmt = $pdo->prepare('SELECT sifre_hash FROM isletmeler WHERE id = ?');
     $stmt->execute([$businessId]);
     $storedHash = $stmt->fetchColumn();
-    if (!$storedHash || !(password_verify($currentPassword, $storedHash) || hash_equals($storedHash, $currentPassword))) {
+    if (!$storedHash || !password_verify($currentPassword, $storedHash)) {
         $error = 'Mevcut şifre doğru değil.';
-    } elseif (strlen($newPassword) < 10 || strlen($newPassword) > 200) {
-        $error = 'Yeni şifre 10-200 karakter arasında olmalıdır.';
+    } elseif (!validNewPassword($newPassword)) {
+        $error = 'Yeni şifre 10-72 bayt arasında olmalıdır.';
     } elseif (!hash_equals($newPassword, $confirmPassword)) {
         $error = 'Yeni şifre ve tekrarı eşleşmiyor.';
     } else {
+        $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
         $stmt = $pdo->prepare('UPDATE isletmeler SET sifre_hash = ? WHERE id = ?');
-        $stmt->execute([password_hash($newPassword, PASSWORD_DEFAULT), $businessId]);
+        $stmt->execute([$newHash, $businessId]);
+        bindPasswordSession('barber', $newHash);
         session_regenerate_id(true);
         businessFlash('success', 'Şifreniz güvenli biçimde güncellendi.');
         businessRedirect('ayarlar.php');

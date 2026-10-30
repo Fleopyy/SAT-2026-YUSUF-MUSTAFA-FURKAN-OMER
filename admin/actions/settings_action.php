@@ -5,7 +5,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 
-$admin = requirePermission('content.manage');
+$admin = requirePermission('settings.edit');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: /admin/pages/content.php');
@@ -21,52 +21,12 @@ if (!verifyCsrfToken()) {
 $action = $_POST['action'] ?? 'save_settings';
 
 if ($action === 'test_smtp') {
-    $testTo = trim($_POST['test_email'] ?? '');
-    if (empty($testTo) || !filter_var($testTo, FILTER_VALIDATE_EMAIL)) {
-        $_SESSION['flash_error'] = 'Lütfen geçerli bir test alıcı e-posta adresi girin.';
-        header('Location: /admin/pages/content.php#smtp');
-        exit;
-    }
-
-                                           
-    $stmt = $pdo->query("SELECT anahtar, deger FROM site_ayarlari WHERE anahtar LIKE 'smtp_%'");
-    $smtpSettings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-
-    $host = $smtpSettings['smtp_host'] ?? '';
-    $port = (int)($smtpSettings['smtp_port'] ?? 587);
-    $user = $smtpSettings['smtp_kullanici'] ?? '';
-    $pass = $smtpSettings['smtp_sifre'] ?? '';
-    $fromEmail = $smtpSettings['smtp_gonderen_eposta'] ?? 'noreply@bitiras.com';
-    $fromName = $smtpSettings['smtp_gonderen_ad'] ?? 'BiTıraş.com';
-    $crypto = $smtpSettings['smtp_sifreleme'] ?? 'tls';
-
-                                
-    $queueId = queueEmail($testTo, 'Test Alıcısı', 'BiTıraş.com — SMTP Test Mesajı', 'Bu e-posta, BiTıraş.com yönetim panelinden yapılan SMTP yapılandırma testidir. Eğer bu mesajı görüyorsanız e-posta alt yapısı çalışmaktadır.');
-
-                                                                    
-    $connectionDiagnostic = "";
-    if (!empty($host)) {
-        $errno = 0;
-        $errstr = '';
-        $timeout = 5;
-        $socket = @fsockopen($host, $port, $errno, $errstr, $timeout);
-        if ($socket) {
-            fclose($socket);
-            $connectionDiagnostic = " ({$host}:{$port} sunucusuna TCP bağlantısı başarıyla kuruldu).";
-        } else {
-            $connectionDiagnostic = " (Dikkat: {$host}:{$port} sunucusuna doğrudan soket bağlantısı kurulamadı: {$errstr}).";
-        }
-    } else {
-        $connectionDiagnostic = " (SMTP Host henüz yapılandırılmamış, test e-postası veritabanı kuyruğuna eklendi).";
-    }
-
-    logAdminAction('smtp_test', 'site_ayarlari', null, "SMTP test e-postası tetiklendi: {$testTo}");
-    $_SESSION['flash_success'] = "Test e-postası e-posta kuyruğuna (#{$queueId}) eklendi{$connectionDiagnostic}";
+    // Fail closed until an explicit SMTP destination policy and pinned transport exist.
+    $_SESSION['flash_error'] = 'SMTP testi beklemede: izinli sunucu ve kurum içi ağ politikası tanımlanmalı. Ağ bağlantısı açılmadı ve kuyruk kaydı oluşturulmadı.';
     header('Location: /admin/pages/content.php#smtp');
     exit;
 }
 
-                         
 if ($action === 'save_settings') {
     $allowedKeys = [
         'site_baslik',
@@ -88,6 +48,8 @@ if ($action === 'save_settings') {
         'smtp_sifreleme'
     ];
 
+    // SMTP changes are held pending policy; preserve every existing SMTP value/password.
+    $allowedKeys = array_values(array_filter($allowedKeys, fn($key) => !str_starts_with($key, 'smtp_')));
     $updatedCount = 0;
     foreach ($allowedKeys as $key) {
         if (isset($_POST[$key])) {
@@ -111,7 +73,7 @@ if ($action === 'save_settings') {
     }
 
     logAdminAction('settings_update', 'site_ayarlari', null, "{$updatedCount} site ayarı güncellendi.");
-    $_SESSION['flash_success'] = "Site ve e-posta ayarları başarıyla kaydedildi.";
+    $_SESSION['flash_success'] = "Site ayarları kaydedildi. SMTP değişiklikleri politika tanımlanana kadar beklemede; mevcut SMTP ayarları korundu.";
     header('Location: /admin/pages/content.php');
     exit;
 }

@@ -1,0 +1,6 @@
+# Deployment credentials
+/data/database.local.php
+/data/mail.local.php
+.env
+.env.*
+

@@ -53,17 +53,36 @@ if (!$business) {
     exit;
 }
 
+if (!currentBusinessScopeAllows((int)$business['id'])) {
+    http_response_code(403);
+    if ($isAjax) jsonResponse(['success' => false, 'message' => 'Yetkisiz isletme kapsami.'], 403);
+    exit('Forbidden');
+}
+
+// Approval cannot reactivate a suspended business; rejection is only for pending applications.
+$allowedStates = ['approve' => ['pending', 'rejected'], 'reject' => ['pending'], 'suspend' => ['active']];
+if (isset($allowedStates[$action]) && !in_array($business['durum'], $allowedStates[$action], true)) {
+    http_response_code(409);
+    if ($isAjax) jsonResponse(['success' => false, 'message' => 'Gecersiz durum gecisi.'], 409);
+    exit('Gecersiz durum gecisi.');
+}
+
 switch ($action) {
     case 'approve':
-        if (!isCurrentUserAdmin() && !canCurrentUser('businesses.approve') && !canCurrentUser('applications.approve')) {
+        if (!isCurrentUserAdmin() && !canCurrentUser('businesses.approve')) {
             if ($isAjax) jsonResponse(['success' => false, 'message' => 'Bu işlem için yetkiniz yok (businesses.approve).'], 403);
             $_SESSION['flash_error'] = 'Başvuru onaylama yetkiniz bulunmuyor.';
             header('Location: /admin/pages/applications.php');
             exit;
         }
 
-        $stmt = $pdo->prepare("UPDATE isletmeler SET durum = 'active', onaylayan_admin_id = ?, onay_tarihi = NOW(), red_gerekce = NULL, red_tarihi = NULL WHERE id = ?");
-        $stmt->execute([$admin['id'], $businessId]);
+        $stmt = $pdo->prepare("UPDATE isletmeler SET durum = 'active', onaylayan_admin_id = ?, onay_tarihi = NOW(), red_gerekce = NULL, red_tarihi = NULL WHERE id = ? AND durum = ?");
+        $stmt->execute([$admin['id'], $businessId, $business['durum']]);
+        if ($stmt->rowCount() !== 1) {
+            http_response_code(409);
+            if ($isAjax) jsonResponse(['success' => false, 'message' => 'Isletme durumu degisti. Sayfayi yenileyin.'], 409);
+            exit('Isletme durumu degisti. Sayfayi yenileyin.');
+        }
 
         logAdminAction('business_approve', 'isletmeler', $businessId, "İşletme onaylandı: {$business['isletme_adi']}");
         createNotification('İşletme Onaylandı', "{$business['isletme_adi']} başlıklı işletme başvurusu onaylandı ve yayına alındı.", 'success', "/admin/pages/businesses.php?id={$businessId}");
@@ -79,7 +98,7 @@ switch ($action) {
         break;
 
     case 'reject':
-        if (!isCurrentUserAdmin() && !canCurrentUser('businesses.reject') && !canCurrentUser('applications.reject')) {
+        if (!isCurrentUserAdmin() && !canCurrentUser('businesses.reject')) {
             if ($isAjax) jsonResponse(['success' => false, 'message' => 'Bu işlem için yetkiniz yok (businesses.reject).'], 403);
             $_SESSION['flash_error'] = 'Başvuru reddetme yetkiniz bulunmuyor.';
             header('Location: /admin/pages/applications.php');
@@ -91,8 +110,13 @@ switch ($action) {
             $reason = 'Belirtilmedi.';
         }
 
-        $stmt = $pdo->prepare("UPDATE isletmeler SET durum = 'rejected', red_gerekce = ?, red_tarihi = NOW() WHERE id = ?");
-        $stmt->execute([$reason, $businessId]);
+        $stmt = $pdo->prepare("UPDATE isletmeler SET durum = 'rejected', red_gerekce = ?, red_tarihi = NOW() WHERE id = ? AND durum = ?");
+        $stmt->execute([$reason, $businessId, $business['durum']]);
+        if ($stmt->rowCount() !== 1) {
+            http_response_code(409);
+            if ($isAjax) jsonResponse(['success' => false, 'message' => 'Isletme durumu degisti. Sayfayi yenileyin.'], 409);
+            exit('Isletme durumu degisti. Sayfayi yenileyin.');
+        }
 
         logAdminAction('business_reject', 'isletmeler', $businessId, "İşletme reddedildi: {$business['isletme_adi']}. Gerekçe: {$reason}");
         createNotification('İşletme Başvurusu Reddedildi', "{$business['isletme_adi']} başvurusu reddedildi. Gerekçe: {$reason}", 'warning');
@@ -115,8 +139,13 @@ switch ($action) {
             exit;
         }
 
-        $stmt = $pdo->prepare("UPDATE isletmeler SET durum = 'suspended' WHERE id = ?");
-        $stmt->execute([$businessId]);
+        $stmt = $pdo->prepare("UPDATE isletmeler SET durum = 'suspended' WHERE id = ? AND durum = ?");
+        $stmt->execute([$businessId, $business['durum']]);
+        if ($stmt->rowCount() !== 1) {
+            http_response_code(409);
+            if ($isAjax) jsonResponse(['success' => false, 'message' => 'Isletme durumu degisti. Sayfayi yenileyin.'], 409);
+            exit('Isletme durumu degisti. Sayfayi yenileyin.');
+        }
 
         logAdminAction('business_suspend', 'isletmeler', $businessId, "İşletme askıya alındı: {$business['isletme_adi']}");
 

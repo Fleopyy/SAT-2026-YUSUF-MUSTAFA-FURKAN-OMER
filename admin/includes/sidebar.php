@@ -37,7 +37,12 @@ $roleLabel = $adminRole === 'admin' ? 'Süper Admin' : 'Yetkili Yönetici';
             $badgeCount = 0;
             if (!empty($item['badge_query'])) {
                 try {
-                    $badgeCount = (int)$pdo->query($item['badge_query'])->fetchColumn();
+                    $badgeParams = [];
+                    $badgeColumn = $item['key'] === 'applications' ? 'id' : 'isletme_id';
+                    $badgeScope = currentBusinessScopeSql($badgeColumn, $badgeParams);
+                    $badgeStmt = $pdo->prepare($item['badge_query'] . ' AND ' . $badgeScope);
+                    $badgeStmt->execute($badgeParams);
+                    $badgeCount = (int)$badgeStmt->fetchColumn();
                 } catch (Exception $e) {
                     $badgeCount = 0;
                 }

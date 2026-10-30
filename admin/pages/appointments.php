@@ -96,7 +96,9 @@ include __DIR__ . '/../includes/header.php';
 <div class="admin-panel" style="margin-bottom:20px;">
     <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
         <div style="display:flex;align-items:center;gap:8px;overflow-x:auto;">
-            <a href="?status=all&date=<?= e($dateFilter) ?>" class="btn <?= $statusFilter === 'all' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">Tümü (<?= $counts['all'] ?>)</a>
+            <a href="?status=all&date=<?= e($dateFilter) ?>" class="btn <?= $statusFilter === 'all' && $dateFilter !== 'today' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">
+                <i class="fa-solid fa-layer-group"></i> Tümü (<?= $counts['all'] ?>)
+            </a>
             <a href="?status=pending&date=<?= e($dateFilter) ?>" class="btn <?= $statusFilter === 'pending' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">
                 <i class="fa-solid fa-clock"></i> Bekleyen (<?= $counts['pending'] ?>)
             </a>
@@ -106,19 +108,21 @@ include __DIR__ . '/../includes/header.php';
             <a href="?status=completed&date=<?= e($dateFilter) ?>" class="btn <?= $statusFilter === 'completed' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">
                 <i class="fa-solid fa-check-double"></i> Tamamlanan (<?= $counts['completed'] ?>)
             </a>
-            <a href="?date=today&status=<?= e($statusFilter) ?>" class="btn <?= $dateFilter === 'today' ? 'btn-primary' : 'btn-secondary' ?> btn-sm" style="background:<?= $dateFilter === 'today' ? 'var(--admin-accent)' : '' ?>;">
+            <a href="?date=today&status=<?= e($statusFilter) ?>" class="btn <?= $dateFilter === 'today' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">
                 <i class="fa-solid fa-calendar-day"></i> Bugün (<?= $counts['today'] ?>)
             </a>
         </div>
 
-        <form method="GET" action="" style="display:flex;gap:8px;">
+        <form method="GET" action="" style="display:flex;gap:8px;align-items:center;">
             <input type="hidden" name="status" value="<?= e($statusFilter) ?>">
             <input type="hidden" name="date" value="<?= e($dateFilter) ?>">
             <div style="position:relative;">
                 <input type="text" name="q" value="<?= e($search) ?>" placeholder="Müşteri, telefon, işletme..." class="form-control" style="padding-left:36px;width:240px;height:38px;">
                 <i class="fa-solid fa-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#94A3B8;font-size:13px;"></i>
             </div>
-            <button type="submit" class="btn btn-secondary btn-sm" style="height:38px;">Ara</button>
+            <button type="submit" class="btn btn-primary btn-sm" style="height:38px;">
+                <i class="fa-solid fa-magnifying-glass"></i> Ara
+            </button>
             <?php if (!empty($search)): ?>
                 <a href="?status=<?= e($statusFilter) ?>&date=<?= e($dateFilter) ?>" class="btn btn-secondary btn-sm" style="height:38px;color:#DC2626;" title="Aramayı Temizle">
                     <i class="fa-solid fa-xmark"></i>
@@ -209,28 +213,30 @@ include __DIR__ . '/../includes/header.php';
                                     $canCancelApt = canCurrentUser('appointments.cancel');
                                     ?>
                                     <?php if ($canEditApt || $canCancelApt): ?>
-                                        <form method="POST" action="/admin/actions/appointment_action.php" style="display:inline-flex;gap:6px;">
-                                            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                                            <input type="hidden" name="appointment_id" value="<?= $apt['id'] ?>">
+                                        <div class="table-actions">
+                                            <form method="POST" action="/admin/actions/appointment_action.php" style="display:inline-flex;gap:6px;">
+                                                <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                                <input type="hidden" name="appointment_id" value="<?= $apt['id'] ?>">
 
-                                            <?php if ($canEditApt && $apt['durum'] !== 'confirmed'): ?>
-                                                <button type="submit" name="status" value="confirmed" class="btn btn-secondary btn-sm" title="Onayla" style="color:var(--admin-success);">
-                                                    <i class="fa-solid fa-check"></i>
-                                                </button>
-                                            <?php endif; ?>
+                                                <?php if ($canEditApt && $apt['durum'] !== 'confirmed'): ?>
+                                                    <button type="submit" name="status" value="confirmed" class="action-btn action-btn-success" title="Onayla">
+                                                        <i class="fa-solid fa-check"></i>
+                                                    </button>
+                                                <?php endif; ?>
 
-                                            <?php if ($canEditApt && $apt['durum'] !== 'completed'): ?>
-                                                <button type="submit" name="status" value="completed" class="btn btn-secondary btn-sm" title="Tamamlandı Olarak İşaretle" style="color:var(--admin-info);">
-                                                    <i class="fa-solid fa-check-double"></i>
-                                                </button>
-                                            <?php endif; ?>
+                                                <?php if ($canEditApt && $apt['durum'] !== 'completed'): ?>
+                                                    <button type="submit" name="status" value="completed" class="action-btn action-btn-info" title="Tamamlandı Olarak İşaretle">
+                                                        <i class="fa-solid fa-check-double"></i>
+                                                    </button>
+                                                <?php endif; ?>
 
-                                            <?php if ($canCancelApt && $apt['durum'] !== 'cancelled'): ?>
-                                                <button type="submit" name="status" value="cancelled" class="btn btn-secondary btn-sm" title="İptal Et" style="color:var(--admin-danger);" onclick="return confirm('Randevuyu iptal etmek istediğinize emin misiniz?');">
-                                                    <i class="fa-solid fa-ban"></i>
-                                                </button>
-                                            <?php endif; ?>
-                                        </form>
+                                                <?php if ($canCancelApt && $apt['durum'] !== 'cancelled'): ?>
+                                                    <button type="submit" name="status" value="cancelled" class="action-btn action-btn-danger" title="İptal Et" onclick="return confirm('Randevuyu iptal etmek istediğinize emin misiniz?');">
+                                                        <i class="fa-solid fa-ban"></i>
+                                                    </button>
+                                                <?php endif; ?>
+                                            </form>
+                                        </div>
                                     <?php else: ?>
                                         <span style="color:var(--admin-text-muted);font-size:12px;">Sadece Görüntüleme</span>
                                     <?php endif; ?>

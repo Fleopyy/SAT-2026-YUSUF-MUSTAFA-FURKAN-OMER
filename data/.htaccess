@@ -1,0 +1,2 @@
+# Internal includes and local secrets must never be served directly.
+Require all denied

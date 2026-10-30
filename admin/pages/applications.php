@@ -24,17 +24,25 @@ $counts = [
     'suspended' => 0
 ];
 
+$scopeParams = [];
+$scopeSql = currentBusinessScopeSql('id', $scopeParams);
 try {
-    $counts['all'] = (int)$pdo->query("SELECT COUNT(*) FROM isletmeler")->fetchColumn();
-    $counts['pending'] = (int)$pdo->query("SELECT COUNT(*) FROM isletmeler WHERE durum = 'pending'")->fetchColumn();
-    $counts['active'] = (int)$pdo->query("SELECT COUNT(*) FROM isletmeler WHERE durum = 'active'")->fetchColumn();
-    $counts['rejected'] = (int)$pdo->query("SELECT COUNT(*) FROM isletmeler WHERE durum = 'rejected'")->fetchColumn();
-    $counts['suspended'] = (int)$pdo->query("SELECT COUNT(*) FROM isletmeler WHERE durum = 'suspended'")->fetchColumn();
+    foreach (array_keys($counts) as $status) {
+        $countParams = $scopeParams;
+        $countSql = "SELECT COUNT(*) FROM isletmeler WHERE {$scopeSql}";
+        if ($status !== 'all') {
+            $countSql .= ' AND durum = ?';
+            $countParams[] = $status;
+        }
+        $stmt = $pdo->prepare($countSql);
+        $stmt->execute($countParams);
+        $counts[$status] = (int)$stmt->fetchColumn();
+    }
 } catch (Exception $e) {}
 
                    
-$where = [];
-$params = [];
+$where = [$scopeSql];
+$params = $scopeParams;
 
 if (in_array($currentTab, ['pending', 'active', 'rejected', 'suspended'])) {
     $where[] = "durum = ?";
@@ -59,7 +67,7 @@ try {
 
                             
 $detailApp = null;
-if ($detailId > 0) {
+if ($detailId > 0 && canCurrentUser('businesses.view_details') && canAccessBusiness($detailId)) {
     try {
         $stmt = $pdo->prepare("SELECT i.*, y.ad_soyad AS onaylayan_ad FROM isletmeler i LEFT JOIN yoneticiler y ON i.onaylayan_admin_id = y.id WHERE i.id = ?");
         $stmt->execute([$detailId]);
@@ -101,14 +109,16 @@ include __DIR__ . '/../includes/header.php';
             </a>
         </div>
 
-        <form method="GET" action="" style="display:flex;gap:8px;">
+        <form method="GET" action="" style="display:flex;gap:8px;align-items:center;">
             <input type="hidden" name="tab" value="<?= e($currentTab) ?>">
             <div style="position:relative;">
                 <input type="text" name="q" value="<?= e($search) ?>" placeholder="İşletme adı, yetkili, telefon..." 
                        class="form-control" style="padding-left:36px;width:240px;height:38px;">
                 <i class="fa-solid fa-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#94A3B8;font-size:13px;"></i>
             </div>
-            <button type="submit" class="btn btn-secondary btn-sm" style="height:38px;">Ara</button>
+            <button type="submit" class="btn btn-primary btn-sm" style="height:38px;">
+                <i class="fa-solid fa-magnifying-glass"></i> Ara
+            </button>
             <?php if (!empty($search)): ?>
                 <a href="?tab=<?= e($currentTab) ?>" class="btn btn-secondary btn-sm" style="height:38px;color:#DC2626;" title="Aramayı Temizle">
                     <i class="fa-solid fa-xmark"></i>
@@ -201,22 +211,22 @@ include __DIR__ . '/../includes/header.php';
             <?php endif; ?>
 
                                        
-            <div style="display:flex;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid #E2E8F0;flex-wrap:wrap;">
-                <?php if ($detailApp['durum'] !== 'active' && canCurrentUser('businesses.approve')): ?>
+            <div style="display:flex;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid #E2E8F0;flex-wrap:wrap;align-items:center;">
+                <?php if (in_array($detailApp['durum'], ['pending', 'rejected'], true) && canCurrentUser('businesses.approve')): ?>
                     <form method="POST" action="/admin/actions/application_action.php" onsubmit="return confirm('Bu işletmeyi onaylamak ve yayına almak istediğinize emin misiniz?');">
                         <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                         <input type="hidden" name="action" value="approve">
                         <input type="hidden" name="business_id" value="<?= $detailApp['id'] ?>">
-                        <button type="submit" class="btn btn-primary" style="background:var(--admin-success);border-color:var(--admin-success);">
-                            <i class="fa-solid fa-check"></i> Başvuruyu Onayla ve Yayına Al
+                        <button type="submit" class="btn btn-success">
+                            <i class="fa-solid fa-circle-check"></i> Başvuruyu Onayla ve Yayına Al
                         </button>
                     </form>
                 <?php endif; ?>
 
-                <?php if ($detailApp['durum'] !== 'rejected' && canCurrentUser('businesses.reject')): ?>
-                    <button type="button" class="btn btn-secondary" style="color:var(--admin-danger);border-color:var(--admin-danger);" 
-                            onclick="openRejectModal(<?= $detailApp['id'] ?>, '<?= addslashes(e($detailApp['isletme_adi'])) ?>')">
-                        <i class="fa-solid fa-xmark"></i> Başvuruyu Reddet
+                <?php if ($detailApp['durum'] === 'pending' && canCurrentUser('businesses.reject')): ?>
+                    <button type="button" class="btn btn-soft-danger" 
+                            data-reject-business data-business-id="<?= (int)$detailApp['id'] ?>" data-business-name="<?= e($detailApp['isletme_adi']) ?>">
+                        <i class="fa-solid fa-circle-xmark"></i> Başvuruyu Reddet
                     </button>
                 <?php endif; ?>
 
@@ -225,7 +235,7 @@ include __DIR__ . '/../includes/header.php';
                         <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                         <input type="hidden" name="action" value="suspend">
                         <input type="hidden" name="business_id" value="<?= $detailApp['id'] ?>">
-                        <button type="submit" class="btn btn-secondary" style="color:var(--admin-warning);border-color:var(--admin-warning);">
+                        <button type="submit" class="btn btn-soft-warning">
                             <i class="fa-solid fa-ban"></i> İşletmeyi Askıya Al
                         </button>
                     </form>
@@ -299,30 +309,32 @@ include __DIR__ . '/../includes/header.php';
                                     <span class="status-badge <?= $badgeClass ?>"><?= $stLabel ?></span>
                                 </td>
                                 <td style="text-align:right;white-space:nowrap;">
-                                    <a href="?tab=<?= e($currentTab) ?>&detail=<?= $app['id'] ?><?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" 
-                                       class="btn btn-secondary btn-sm" title="Detaylı İncele">
-                                        <i class="fa-regular fa-eye"></i> İncele
-                                    </a>
+                                    <div class="table-actions">
+                                        <a href="?tab=<?= e($currentTab) ?>&detail=<?= $app['id'] ?><?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" 
+                                           class="btn btn-secondary btn-sm" title="Detaylı İncele">
+                                            <i class="fa-regular fa-eye"></i> İncele
+                                        </a>
 
-                                    <?php if ($app['durum'] === 'pending'): ?>
-                                        <?php if (canCurrentUser('businesses.approve')): ?>
-                                            <form method="POST" action="/admin/actions/application_action.php" style="display:inline;" onsubmit="return confirm('<?= addslashes(e($app['isletme_adi'])) ?> işletmesini onaylamak istediğinize emin misiniz?');">
-                                                <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                                                <input type="hidden" name="action" value="approve">
-                                                <input type="hidden" name="business_id" value="<?= $app['id'] ?>">
-                                                <button type="submit" class="btn btn-sm" style="background:#059669;color:#fff;border:none;" title="Hızlı Onayla">
-                                                    <i class="fa-solid fa-check"></i>
+                                        <?php if ($app['durum'] === 'pending'): ?>
+                                            <?php if (canCurrentUser('businesses.approve')): ?>
+                                                <form method="POST" action="/admin/actions/application_action.php" style="display:inline;" data-approve-business data-business-name="<?= e($app['isletme_adi']) ?>">
+                                                    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                                    <input type="hidden" name="action" value="approve">
+                                                    <input type="hidden" name="business_id" value="<?= $app['id'] ?>">
+                                                    <button type="submit" class="action-btn action-btn-success" title="Hızlı Onayla">
+                                                        <i class="fa-solid fa-check"></i>
+                                                    </button>
+                                                </form>
+                                            <?php endif; ?>
+
+                                            <?php if (canCurrentUser('businesses.reject')): ?>
+                                                <button type="button" class="action-btn action-btn-danger" title="Reddet"
+                                                        data-reject-business data-business-id="<?= (int)$app['id'] ?>" data-business-name="<?= e($app['isletme_adi']) ?>">
+                                                    <i class="fa-solid fa-xmark"></i>
                                                 </button>
-                                            </form>
+                                            <?php endif; ?>
                                         <?php endif; ?>
-
-                                        <?php if (canCurrentUser('businesses.reject')): ?>
-                                            <button type="button" class="btn btn-sm" style="background:#DC2626;color:#fff;border:none;" title="Reddet"
-                                                    onclick="openRejectModal(<?= $app['id'] ?>, '<?= addslashes(e($app['isletme_adi'])) ?>')">
-                                                <i class="fa-solid fa-xmark"></i>
-                                            </button>
-                                        <?php endif; ?>
-                                    <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -338,7 +350,7 @@ include __DIR__ . '/../includes/header.php';
     <div style="background:#fff;border-radius:16px;width:100%;max-width:480px;box-shadow:0 20px 40px rgba(0,0,0,0.2);overflow:hidden;animation:modalIn 0.25s ease;">
         <div style="padding:20px 24px;border-bottom:1px solid #E2E8F0;display:flex;justify-content:space-between;align-items:center;">
             <h3 style="font-size:17px;font-weight:800;color:#0F172A;margin:0;">Başvuruyu Reddet</h3>
-            <button type="button" onclick="closeRejectModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748B;">&times;</button>
+            <button type="button" data-close-reject-modal style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748B;">&times;</button>
         </div>
         <form method="POST" action="/admin/actions/application_action.php" style="padding:24px;">
             <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
@@ -355,7 +367,7 @@ include __DIR__ . '/../includes/header.php';
             </div>
 
             <div style="display:flex;justify-content:flex-end;gap:10px;">
-                <button type="button" class="btn btn-secondary" onclick="closeRejectModal()">Vazgeç</button>
+                <button type="button" class="btn btn-secondary" data-close-reject-modal>Vazgeç</button>
                 <button type="submit" class="btn btn-primary" style="background:#DC2626;border-color:#DC2626;">Reddet ve Bildir</button>
             </div>
         </form>
@@ -363,6 +375,24 @@ include __DIR__ . '/../includes/header.php';
 </div>
 
 <script>
+document.querySelectorAll('[data-reject-business]').forEach(button => {
+    button.addEventListener('click', () => {
+        openRejectModal(button.dataset.businessId, button.dataset.businessName);
+    });
+});
+
+document.querySelectorAll('[data-approve-business]').forEach(form => {
+    form.addEventListener('submit', event => {
+        if (!confirm(form.dataset.businessName + ' işletmesini onaylamak istediğinize emin misiniz?')) {
+            event.preventDefault();
+        }
+    });
+});
+
+document.querySelectorAll('[data-close-reject-modal]').forEach(button => {
+    button.addEventListener('click', closeRejectModal);
+});
+
 function openRejectModal(businessId, businessName) {
     document.getElementById('rejectBusinessId').value = businessId;
     document.getElementById('rejectBusinessName').textContent = businessName;

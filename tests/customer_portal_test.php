@@ -1,4 +1,11 @@
 <?php
+// Maintenance and test tools must never run through HTTP.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Forbidden');
+}
+
+
 $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
 $_SERVER['HTTP_HOST'] = 'localhost';
 $_SERVER['REQUEST_METHOD'] = 'GET';

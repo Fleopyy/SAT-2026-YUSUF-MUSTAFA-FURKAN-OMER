@@ -5,7 +5,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 
-$admin = requirePermission('content.manage');
+$admin = requirePermission('settings.view');
 $currentPage = 'content';
 $pageTitle = 'Site İçeriği & Ayarlar';
 $pageSubtitle = 'Ana sayfa metinlerini, duyuru bandını, iletişim ve SMTP e-posta ayarlarını düzenleyin';
@@ -26,6 +26,7 @@ include __DIR__ . '/../includes/header.php';
                           
     <div>
         <form method="POST" action="/admin/actions/settings_action.php">
+            <fieldset <?= canCurrentUser('settings.edit') ? '' : 'disabled' ?> style="border:0;padding:0;margin:0;min-width:0;">
             <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
             <input type="hidden" name="action" value="save_settings">
 
@@ -117,6 +118,8 @@ include __DIR__ . '/../includes/header.php';
 
                                                         
             <div class="admin-panel" id="smtp" style="margin-bottom:24px;">
+                <p role="status">SMTP değişiklikleri ve testleri izinli sunucu / kurum içi ağ politikası tanımlanana kadar beklemede. Mevcut ayarlar korunur; test bağlantısı ve kuyruk kaydı oluşturulmaz.</p>
+                <fieldset disabled style="border:0;padding:0;margin:0;min-width:0;">
                 <div class="panel-header">
                     <h2>
                         <i class="fa-solid fa-envelope"></i>
@@ -170,6 +173,7 @@ include __DIR__ . '/../includes/header.php';
                         </div>
                     </div>
                 </div>
+                </fieldset>
             </div>
 
             <div style="margin-bottom:40px;">
@@ -177,6 +181,7 @@ include __DIR__ . '/../includes/header.php';
                     <i class="fa-solid fa-floppy-disk"></i> Tüm Ayarları Kaydet
                 </button>
             </div>
+        </fieldset>
         </form>
     </div>
 
@@ -191,10 +196,11 @@ include __DIR__ . '/../includes/header.php';
             </div>
             <div class="panel-body padded">
                 <p style="font-size:13px;color:var(--admin-text-muted);margin-bottom:16px;">
-                    Mevcut SMTP yapılandırmanızı test etmek için bir alıcı adresi girerek deneme e-postası tetikleyin.
+                    SMTP testi politika tanımlanana kadar devre dışıdır. E-posta teslimatı doğrulanmadı.
                 </p>
 
                 <form method="POST" action="/admin/actions/settings_action.php">
+            <fieldset disabled style="border:0;padding:0;margin:0;min-width:0;">
                     <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                     <input type="hidden" name="action" value="test_smtp">
 
@@ -206,7 +212,8 @@ include __DIR__ . '/../includes/header.php';
                     <button type="submit" class="btn btn-secondary" style="width:100%;justify-content:center;">
                         <i class="fa-solid fa-vial"></i> Test E-postası Gönder
                     </button>
-                </form>
+                </fieldset>
+        </form>
             </div>
         </div>
 

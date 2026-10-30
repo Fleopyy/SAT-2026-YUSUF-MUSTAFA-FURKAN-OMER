@@ -286,13 +286,17 @@ include __DIR__ . '/../includes/header.php';
                         </h4>
 
                                                        
-                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
                             <button type="button" class="btn btn-secondary btn-sm" onclick="applyPreset('group_business')">İşletme Sorumlusu</button>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="applyPreset('group_appointments')">Randevu Yöneticisi</button>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="applyPreset('group_content')">İçerik Editörü</button>
                             <button type="button" class="btn btn-secondary btn-sm" onclick="applyPreset('group_reports')">Rapor Uzmanı</button>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="selectAllPerms(true)" style="color:var(--admin-success);">Tümünü Seç</button>
-                            <button type="button" class="btn btn-secondary btn-sm" onclick="selectAllPerms(false)" style="color:var(--admin-danger);">Temizle</button>
+                            <button type="button" class="btn btn-soft-success btn-sm" onclick="selectAllPerms(true)">
+                                <i class="fa-solid fa-check"></i> Tümünü Seç
+                            </button>
+                            <button type="button" class="btn btn-soft-danger btn-sm" onclick="selectAllPerms(false)">
+                                <i class="fa-solid fa-xmark"></i> Temizle
+                            </button>
                         </div>
                     </div>
 
@@ -392,32 +396,34 @@ include __DIR__ . '/../includes/header.php';
                                 <?= $m['son_giris'] ? date('d.m.Y H:i', strtotime($m['son_giris'])) : '<span style="color:var(--admin-text-muted);font-size:12px;">Henüz giriş yok</span>' ?>
                             </td>
                             <td style="text-align:right;white-space:nowrap;">
-                                <a href="?logs=<?= $m['id'] ?>" class="btn btn-secondary btn-sm" title="İşlem Kayıtları">
-                                    <i class="fa-solid fa-clock-rotate-left"></i> Loglar
-                                </a>
-                                <a href="?edit=<?= $m['id'] ?>" class="btn btn-secondary btn-sm" title="Düzenle">
-                                    <i class="fa-solid fa-pen"></i>
-                                </a>
+                                <div class="table-actions">
+                                    <a href="?logs=<?= $m['id'] ?>" class="btn btn-secondary btn-sm" title="İşlem Kayıtları">
+                                        <i class="fa-solid fa-clock-rotate-left"></i> Loglar
+                                    </a>
+                                    <a href="?edit=<?= $m['id'] ?>" class="action-btn action-btn-edit" title="Düzenle">
+                                        <i class="fa-solid fa-pen"></i>
+                                    </a>
 
-                                <?php if ($m['id'] !== $admin['id']): ?>
-                                    <form method="POST" action="/admin/actions/manager_action.php" style="display:inline;" onsubmit="return confirm('Bu yöneticinin durumunu değiştirmek istediğinize emin misiniz?');">
-                                        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                                        <input type="hidden" name="action" value="toggle_active">
-                                        <input type="hidden" name="manager_id" value="<?= $m['id'] ?>">
-                                        <button type="submit" class="btn btn-sm" style="background:<?= $m['aktif'] ? '#FEF2F2;color:#DC2626' : '#ECFDF5;color:#059669' ?>;border:none;" title="<?= $m['aktif'] ? 'Devre Dışı Bırak' : 'Aktifleştir' ?>">
-                                            <i class="fa-solid <?= $m['aktif'] ? 'fa-user-slash' : 'fa-user-check' ?>"></i>
-                                        </button>
-                                    </form>
+                                    <?php if ($m['id'] !== $admin['id']): ?>
+                                        <form method="POST" action="/admin/actions/manager_action.php" style="display:inline;" onsubmit="return confirm('Bu yöneticinin durumunu değiştirmek istediğinize emin misiniz?');">
+                                            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                            <input type="hidden" name="action" value="toggle_active">
+                                            <input type="hidden" name="manager_id" value="<?= $m['id'] ?>">
+                                            <button type="submit" class="action-btn <?= $m['aktif'] ? 'action-btn-warning' : 'action-btn-success' ?>" title="<?= $m['aktif'] ? 'Devre Dışı Bırak' : 'Aktifleştir' ?>">
+                                                <i class="fa-solid <?= $m['aktif'] ? 'fa-user-slash' : 'fa-user-check' ?>"></i>
+                                            </button>
+                                        </form>
 
-                                    <form method="POST" action="/admin/actions/manager_action.php" style="display:inline;" onsubmit="return confirm('Bu yöneticiyi kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!');">
-                                        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                                        <input type="hidden" name="action" value="delete">
-                                        <input type="hidden" name="manager_id" value="<?= $m['id'] ?>">
-                                        <button type="submit" class="btn btn-sm" style="background:#FEE2E2;color:#991B1B;border:none;" title="Sil">
-                                            <i class="fa-solid fa-trash-can"></i>
-                                        </button>
-                                    </form>
-                                <?php endif; ?>
+                                        <form method="POST" action="/admin/actions/manager_action.php" style="display:inline;" onsubmit="return confirm('Bu yöneticiyi kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!');">
+                                            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="manager_id" value="<?= $m['id'] ?>">
+                                            <button type="submit" class="action-btn action-btn-danger" title="Sil">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        </form>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>

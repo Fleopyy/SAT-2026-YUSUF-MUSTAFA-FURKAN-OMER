@@ -28,7 +28,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 businessDeleteOwnedFile($path, $businessId);
                 throw $e;
             }
-        } elseif ($action === 'feature') {
+        } elseif ($action === 'feature' || $action === 'unfeature') {
             $photoId = filter_var($_POST['photo_id'] ?? null, FILTER_VALIDATE_INT);
             $slot = is_string($_POST['slot'] ?? null) ? $_POST['slot'] : '';
             if (!$photoId || !in_array($slot, ['profile', 'cover'], true)) {
@@ -39,11 +39,30 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             if (!$stmt->fetchColumn()) {
                 throw new RuntimeException('Fotoğraf bu işletmeye ait değil.');
             }
-            $pdo->prepare('INSERT INTO isletme_panel_medya (isletme_id, profil_fotograf_id, kapak_fotograf_id)
-                           VALUES (?, ?, ?)
-                           ON DUPLICATE KEY UPDATE ' . ($slot === 'profile' ? 'profil_fotograf_id = VALUES(profil_fotograf_id)' : 'kapak_fotograf_id = VALUES(kapak_fotograf_id)'))
-                ->execute([$businessId, $slot === 'profile' ? $photoId : null, $slot === 'cover' ? $photoId : null]);
-            businessFlash('success', $slot === 'profile' ? 'Profil fotoğrafı güncellendi.' : 'Kapak fotoğrafı güncellendi.');
+            // Zaten seçili mi kontrol et (toggle)
+            $checkStmt = $pdo->prepare('SELECT profil_fotograf_id, kapak_fotograf_id FROM isletme_panel_medya WHERE isletme_id = ?');
+            $checkStmt->execute([$businessId]);
+            $currentMedia = $checkStmt->fetch(PDO::FETCH_ASSOC);
+            $isAlreadySet = $currentMedia && (
+                ($slot === 'profile' && (int)($currentMedia['profil_fotograf_id'] ?? 0) === $photoId) ||
+                ($slot === 'cover'   && (int)($currentMedia['kapak_fotograf_id']  ?? 0) === $photoId)
+            );
+            if ($isAlreadySet || $action === 'unfeature') {
+                // Kaldır (NULL yap)
+                $col = $slot === 'profile' ? 'profil_fotograf_id' : 'kapak_fotograf_id';
+                $pdo->prepare("INSERT INTO isletme_panel_medya (isletme_id, profil_fotograf_id, kapak_fotograf_id)
+                               VALUES (?, ?, ?)
+                               ON DUPLICATE KEY UPDATE {$col} = NULL")
+                    ->execute([$businessId, $slot === 'profile' ? null : null, $slot === 'cover' ? null : null]);
+                businessFlash('success', $slot === 'profile' ? 'Profil fotoğrafı kaldırıldı.' : 'Kapak fotoğrafı kaldırıldı.');
+            } else {
+                // Ayarla
+                $pdo->prepare('INSERT INTO isletme_panel_medya (isletme_id, profil_fotograf_id, kapak_fotograf_id)
+                               VALUES (?, ?, ?)
+                               ON DUPLICATE KEY UPDATE ' . ($slot === 'profile' ? 'profil_fotograf_id = VALUES(profil_fotograf_id)' : 'kapak_fotograf_id = VALUES(kapak_fotograf_id)'))
+                    ->execute([$businessId, $slot === 'profile' ? $photoId : null, $slot === 'cover' ? $photoId : null]);
+                businessFlash('success', $slot === 'profile' ? 'Profil fotoğrafı güncellendi.' : 'Kapak fotoğrafı güncellendi.');
+            }
         } elseif ($action === 'delete') {
             $photoId = filter_var($_POST['photo_id'] ?? null, FILTER_VALIDATE_INT);
             $stmt = $pdo->prepare('SELECT fotograf_yolu FROM isletme_fotograflari WHERE id = ? AND isletme_id = ?');
@@ -52,10 +71,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             if (!$photoPath) {
                 throw new RuntimeException('Fotoğraf bu işletmeye ait değil.');
             }
-            $pdo->beginTransaction();
-            $pdo->prepare('DELETE FROM isletme_fotograflari WHERE id = ? AND isletme_id = ?')->execute([$photoId, $businessId]);
-            $pdo->commit();
-            businessDeleteOwnedFile($photoPath, $businessId);
+            deleteOwnedMedia($photoPath, $businessId, $pdo, function () use ($pdo, $photoId, $businessId, $photoPath) {
+                $stmt = $pdo->prepare('DELETE FROM isletme_fotograflari WHERE id = ? AND isletme_id = ? AND fotograf_yolu = ?');
+                $stmt->execute([$photoId, $businessId, $photoPath]);
+                if ($stmt->rowCount() !== 1) throw new RuntimeException('Foto?raf kayd? de?i?ti.');
+            });
             businessFlash('success', 'Fotoğraf silindi.');
         } elseif ($action === 'reorder') {
             $positions = $_POST['position'] ?? [];
@@ -91,7 +111,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $pdo->rollBack();
         }
         error_log('Business photo action failed: ' . $e->getMessage());
-        $errors[] = $e instanceof RuntimeException ? $e->getMessage() : 'Fotoğraf işlemi tamamlanamadı.';
+        $errors[] = ($e instanceof RuntimeException && !($e instanceof PDOException)) ? $e->getMessage() : 'Fotoğraf işlemi tamamlanamadı.';
     }
     if (!$errors) {
         businessRedirect('fotograflar.php');
@@ -113,10 +133,24 @@ include __DIR__ . '/_header.php';
     <div class="panel-header"><h2><i class="fa-solid fa-images"></i><span>Fotoğraf Galerisi</span></h2><span class="status-badge"><?= count($photos) ?> fotoğraf</span></div>
     <div class="panel-body padded">
         <?php foreach ($errors as $error): ?><div class="business-notice error"><?= businessEscape($error) ?></div><?php endforeach; ?>
-        <form method="POST" enctype="multipart/form-data" class="admin-form" style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:24px;">
+        <form method="POST" enctype="multipart/form-data" class="admin-form business-file-upload-row">
             <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="upload">
-            <div class="form-group" style="margin:0;flex:1;min-width:220px;"><label for="photo">Yeni fotoğraf (JPG/PNG/WEBP, en fazla 5 MB)</label><input id="photo" type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></div>
-            <button type="submit" class="btn-admin primary"><i class="fa-solid fa-upload"></i> Yükle</button>
+            <div class="form-group" style="flex:1;min-width:280px;">
+                <label for="photo">Yeni Fotoğraf <span class="label-sub">(JPG/PNG/WEBP, en fazla 2 MB)</span></label>
+                <div class="custom-file-box">
+                    <input id="photo" type="file" name="photo" accept="image/jpeg,image/png,image/webp" required class="custom-file-input">
+                    <div class="custom-file-trigger">
+                        <span class="file-trigger-info">
+                            <i class="fa-solid fa-cloud-arrow-up file-icon"></i>
+                            <span class="file-text" data-default="Bilgisayarınızdan fotoğraf seçin...">Bilgisayarınızdan fotoğraf seçin...</span>
+                        </span>
+                        <span class="file-browse-btn">Gözat</span>
+                    </div>
+                </div>
+            </div>
+            <div class="upload-btn-wrap">
+                <button type="submit" class="btn-admin primary"><i class="fa-solid fa-cloud-arrow-up"></i> Yükle</button>
+            </div>
         </form>
         <?php if (!$photos): ?>
             <div class="empty-state"><i class="fa-regular fa-images"></i><h4>Galeriniz henüz boş</h4><p>İşletmenizi tanıtan fotoğrafları buradan yükleyin.</p></div>
@@ -129,13 +163,33 @@ include __DIR__ . '/_header.php';
                             <img src="/<?= businessEscape($photo['fotograf_yolu']) ?>" alt="İşletme fotoğrafı">
                             <label style="display:block;margin:8px 0;font-size:12px;">Sıra <input type="number" name="position[<?= (int)$photo['id'] ?>]" value="<?= (int)$photo['sira'] ?>" min="0" style="width:70px;"></label>
                             <div class="business-actions">
-                                <?php if ($photo['is_profile']): ?><span class="status-badge active">Profil</span><?php else: ?>
-                                    <button class="btn-admin outline sm" type="button" onclick="submitPhotoAction(<?= (int)$photo['id'] ?>,'profile')">Profil yap</button>
+                                <?php if ($photo['is_profile']): ?>
+                                    <button class="btn-admin success sm" type="button"
+                                        title="Profil fotoğrafı olarak ayarlı — kaldırmak için tıkla"
+                                        onclick="submitPhotoAction(<?= (int)$photo['id'] ?>,'profile','unfeature')">
+                                        <i class="fa-solid fa-circle-check" style="margin-right:4px;"></i>Profil
+                                    </button>
+                                <?php else: ?>
+                                    <button class="btn-admin outline sm" type="button"
+                                        title="Bu fotoğrafı profil fotoğrafı yap"
+                                        onclick="submitPhotoAction(<?= (int)$photo['id'] ?>,'profile','feature')">
+                                        Profil yap
+                                    </button>
                                 <?php endif; ?>
-                                <?php if ($photo['is_cover']): ?><span class="status-badge active">Kapak</span><?php else: ?>
-                                    <button class="btn-admin outline sm" type="button" onclick="submitPhotoAction(<?= (int)$photo['id'] ?>,'cover')">Kapak yap</button>
+                                <?php if ($photo['is_cover']): ?>
+                                    <button class="btn-admin success sm" type="button"
+                                        title="Kapak fotoğrafı olarak ayarlı — kaldırmak için tıkla"
+                                        onclick="submitPhotoAction(<?= (int)$photo['id'] ?>,'cover','unfeature')">
+                                        <i class="fa-solid fa-circle-check" style="margin-right:4px;"></i>Kapak
+                                    </button>
+                                <?php else: ?>
+                                    <button class="btn-admin outline sm" type="button"
+                                        title="Bu fotoğrafı kapak fotoğrafı yap"
+                                        onclick="submitPhotoAction(<?= (int)$photo['id'] ?>,'cover','feature')">
+                                        Kapak yap
+                                    </button>
                                 <?php endif; ?>
-                                <button class="btn-admin danger sm" type="button" onclick="if(confirm('Bu fotoğrafı silmek istediğinizden emin misiniz?'))submitPhotoAction(<?= (int)$photo['id'] ?>,'delete')">Sil</button>
+                                <button class="btn-admin danger sm" type="button" onclick="if(confirm('Bu fotoğrafı silmek istediğinizden emin misiniz?'))submitPhotoAction(<?= (int)$photo['id'] ?>,'delete','delete')">Sil</button>
                             </div>
                         </article>
                     <?php endforeach; ?>
@@ -152,11 +206,16 @@ include __DIR__ . '/_header.php';
     <input id="photoSlot" name="slot">
 </form>
 <script>
-function submitPhotoAction(id, action) {
+function submitPhotoAction(id, slot, action) {
     const form = document.getElementById('photoActionForm');
-    document.getElementById('photoAction').value = action === 'delete' ? 'delete' : 'feature';
+    if (action === 'delete') {
+        document.getElementById('photoAction').value = 'delete';
+        document.getElementById('photoSlot').value = '';
+    } else {
+        document.getElementById('photoAction').value = action; // 'feature' veya 'unfeature'
+        document.getElementById('photoSlot').value = slot;    // 'profile' veya 'cover'
+    }
     document.getElementById('photoId').value = id;
-    document.getElementById('photoSlot').value = action === 'delete' ? '' : action;
     form.submit();
 }
 </script>

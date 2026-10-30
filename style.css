@@ -674,3 +674,123 @@ a {
         max-width: 100%;
     }
 }
+
+/* ── Müşteri Kayıt Şehir Combobox / Autocomplete ── */
+.cust-city-combobox {
+    position: relative;
+    width: 100%;
+}
+
+.cust-city-combobox .cust-city-toggle {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    padding: 8px 10px;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    transition: color 0.2s ease, background-color 0.2s ease;
+    z-index: 5;
+}
+
+.cust-city-combobox .cust-city-toggle:hover {
+    color: var(--accent);
+    background-color: rgba(194, 136, 64, 0.08);
+}
+
+.cust-city-combobox .cust-city-toggle i {
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cust-city-combobox.open .cust-city-toggle i {
+    transform: rotate(180deg);
+}
+
+.cust-city-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 1065;
+    background: #ffffff;
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 12px;
+    box-shadow: 0 12px 30px -4px rgba(15, 23, 42, 0.16), 0 4px 12px -2px rgba(15, 23, 42, 0.08);
+    max-height: 230px;
+    overflow-y: auto;
+    padding: 6px;
+    scroll-behavior: smooth;
+}
+
+.cust-city-dropdown[hidden] {
+    display: none !important;
+}
+
+.cust-city-dropdown::-webkit-scrollbar {
+    width: 6px;
+}
+.cust-city-dropdown::-webkit-scrollbar-track {
+    background: #f8fafc;
+    border-radius: 8px;
+}
+.cust-city-dropdown::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 8px;
+}
+.cust-city-dropdown::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.cust-city-option {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 10px 14px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-dark, #0f172a);
+    font-size: 0.935rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, padding-left 0.15s ease;
+}
+
+.cust-city-option:hover,
+.cust-city-option.active,
+.cust-city-option[aria-selected="true"] {
+    background-color: var(--accent-light, #fdf8f3);
+    color: var(--accent-hover, #a66e2c);
+    font-weight: 600;
+    padding-left: 18px;
+}
+
+.cust-city-option .city-icon {
+    font-size: 0.75rem;
+    color: var(--accent);
+    margin-right: 10px;
+    opacity: 0.75;
+    transition: transform 0.15s ease;
+}
+
+.cust-city-option:hover .city-icon,
+.cust-city-option.active .city-icon {
+    transform: scale(1.2);
+    opacity: 1;
+}
+
+.cust-city-empty {
+    padding: 14px 12px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    line-height: 1.4;
+}

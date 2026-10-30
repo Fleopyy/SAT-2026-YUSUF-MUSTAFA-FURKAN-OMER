@@ -74,7 +74,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $pdo->rollBack();
         }
         error_log('Business service action failed: ' . $e->getMessage());
-        $errors[] = $e instanceof RuntimeException ? $e->getMessage() : 'Hizmet kaydedilemedi.';
+        $errors[] = ($e instanceof RuntimeException && !($e instanceof PDOException)) ? $e->getMessage() : 'Hizmet kaydedilemedi.';
     }
 }
 
@@ -103,16 +103,25 @@ include __DIR__ . '/_header.php';
         <form method="POST" class="admin-form" id="newServiceForm" onsubmit="return validateServiceForm(this)">
             <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="save">
             <div class="business-form-grid">
-                <div class="form-group"><label>Hizmet adı</label><input name="name" maxlength="150" required></div>
-                <div class="form-group"><label>Fiyat (TL)</label><input name="price" type="number" min="0" step="0.01" required></div>
-                <div class="form-group"><label>Süre (dakika)</label><input name="duration" type="number" min="1" max="1440" required></div>
-                <div class="form-group" style="grid-column:1/-1"><label>Açıklama</label><textarea name="description" maxlength="5000"></textarea></div>
-                <fieldset class="form-group" style="grid-column:1/-1;border:1px solid #E2E8F0;border-radius:8px;padding:14px;"><legend style="font-size:12px;font-weight:700;">Hizmeti sunabilecek çalışanlar</legend>
-                    <?php if (!$employees): ?><small>Çalışan ekleyip aktif hale getirin.</small><?php endif; ?>
-                    <?php foreach ($employees as $employee): ?><label style="display:inline-flex;gap:8px;align-items:center;margin:6px 14px 6px 0;"><input type="checkbox" name="employee_ids[]" value="<?= (int)$employee['id'] ?>"> <?= businessEscape($employee['ad_soyad']) ?></label><?php endforeach; ?>
+                <div class="form-group"><label>Hizmet adı</label><input name="name" maxlength="150" required placeholder="Örn: Saç Kesimi & Yıkama"></div>
+                <div class="form-group"><label>Fiyat (TL)</label><input name="price" type="number" min="0" step="0.01" required placeholder="Örn: 250"></div>
+                <div class="form-group"><label>Süre (dakika)</label><input name="duration" type="number" min="1" max="1440" required placeholder="Örn: 30"></div>
+                <div class="form-group" style="grid-column:1/-1"><label>Açıklama</label><textarea name="description" maxlength="5000" rows="3" placeholder="Hizmet detayları ve açıklaması..."></textarea></div>
+                <fieldset class="form-group" style="grid-column:1/-1;border:1.5px solid #E2E8F0;border-radius:10px;padding:16px;background:#F8FAFC;"><legend style="font-size:12px;font-weight:800;color:var(--admin-text-muted);text-transform:uppercase;letter-spacing:0.5px;padding:0 6px;">Hizmeti sunabilecek çalışanlar</legend>
+                    <?php if (!$employees): ?><small style="color:#64748B;">Çalışan ekleyip aktif hale getirin.</small><?php endif; ?>
+                    <div class="services-checkbox-list">
+                        <?php foreach ($employees as $employee): ?>
+                            <label class="service-checkbox-pill">
+                                <input type="checkbox" name="employee_ids[]" value="<?= (int)$employee['id'] ?>">
+                                <span><?= businessEscape($employee['ad_soyad']) ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
                 </fieldset>
             </div>
-            <button class="btn-admin primary" style="margin-top:18px;" type="submit"><i class="fa-solid fa-floppy-disk"></i> Hizmeti Kaydet</button>
+            <div style="margin-top:20px;display:flex;justify-content:flex-start;">
+                <button class="btn-admin primary" type="submit"><i class="fa-solid fa-floppy-disk"></i> Hizmeti Kaydet</button>
+            </div>
         </form>
     </div>
 </section>

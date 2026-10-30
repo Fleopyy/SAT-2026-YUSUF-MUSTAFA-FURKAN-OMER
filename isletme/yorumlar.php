@@ -65,7 +65,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         businessRedirect('yorumlar.php');
     } catch (Throwable $e) {
         error_log('Business review action failed: ' . $e->getMessage());
-        $errors[] = $e instanceof RuntimeException ? $e->getMessage() : 'Yorum işlemi tamamlanamadı.';
+        $errors[] = ($e instanceof RuntimeException && !($e instanceof PDOException)) ? $e->getMessage() : 'Yorum işlemi tamamlanamadı.';
     }
 }
 
@@ -98,10 +98,13 @@ include __DIR__ . '/_header.php';
 <section class="admin-panel">
     <div class="panel-header"><h2><i class="fa-solid fa-filter"></i><span>Yorum filtreleri</span></h2></div>
     <div class="panel-body padded">
-        <form method="GET" class="business-form-grid admin-form">
+        <form method="GET" class="business-filter-form admin-form">
             <div class="form-group"><label>Puan</label><select name="rating"><option value="0">Tüm puanlar</option><?php for ($i=5;$i>=1;$i--): ?><option value="<?= $i ?>" <?= $ratingFilter === $i ? 'selected' : '' ?>><?= $i ?> yıldız</option><?php endfor; ?></select></div>
             <div class="form-group"><label>Yanıt durumu</label><select name="reply"><option value="all">Tümü</option><option value="answered" <?= $replyFilter === 'answered' ? 'selected' : '' ?>>Yanıtlanan</option><option value="unanswered" <?= $replyFilter === 'unanswered' ? 'selected' : '' ?>>Yanıtlanmayan</option></select></div>
-            <div class="form-group" style="align-self:end"><button class="btn-admin primary">Filtrele</button></div>
+            <div class="business-filter-actions">
+                <button type="submit" class="btn-admin primary"><i class="fa-solid fa-filter"></i> Filtrele</button>
+                <a class="btn-admin outline" href="/isletme/yorumlar.php"><i class="fa-solid fa-rotate-left"></i> Sıfırla</a>
+            </div>
         </form>
     </div>
 </section>

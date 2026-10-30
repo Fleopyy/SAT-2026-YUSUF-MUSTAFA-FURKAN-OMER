@@ -1,4 +1,11 @@
 <?php
+// Maintenance and test tools must never run through HTTP.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Forbidden');
+}
+
+
    
                                                                                 
    
@@ -8,10 +15,6 @@
    
 
 require_once __DIR__ . '/../includes/auth.php';
-
-if (php_sapi_name() !== 'cli') {
-    die("Bu script yalnızca komut satırından (CLI) çalıştırılabilir.\n");
-}
 
 echo "====================================================\n";
 echo "  BiTıraş.com — Güvenli Admin Hesabı Oluşturucu\n";

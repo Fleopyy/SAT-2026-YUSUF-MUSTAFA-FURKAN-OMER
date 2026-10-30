@@ -56,6 +56,14 @@ try {
     $stmt = $pdo->prepare('UPDATE randevu_ek_bilgileri SET bitis_zamani = ?, musteri_notu = ? WHERE randevu_id = ?');
     $stmt->execute([$end, $note !== '' ? $note : null, $appointmentId]);
     $pdo->commit();
+
+    // Otomatik E-Posta Bildirimi: Musteri ve Isletmeye Bildirim
+    try {
+        require_once __DIR__ . '/data/appointment_notification_service.php';
+        notifyAppointmentCreated($appointmentId);
+    } catch (Throwable $mailEx) {
+        error_log('Appointment creation notification failed: ' . $mailEx->getMessage());
+    }
     $_SESSION['mesaj'] = 'Randevu isteğiniz işletmeye iletildi.';
     $_SESSION['mesaj_turu'] = 'success';
     header('Location: /berber.php?id=' . $requestedBusinessId);
@@ -68,7 +76,7 @@ try {
         $message = 'Bu saat çalışan için artık müsait değil. Lütfen başka bir saat seçin.';
     } else {
         error_log('Customer booking failed: ' . $e->getMessage());
-        $message = $e instanceof RuntimeException ? $e->getMessage() : 'Randevu oluşturulamadı. Lütfen başka bir saat seçin.';
+        $message = ($e instanceof RuntimeException && !($e instanceof PDOException)) ? $e->getMessage() : 'Randevu oluşturulamadı. Lütfen başka bir saat seçin.';
     }
     $_SESSION['mesaj'] = $message;
     $_SESSION['mesaj_turu'] = 'warning';

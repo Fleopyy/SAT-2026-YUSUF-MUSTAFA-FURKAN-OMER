@@ -1,6 +1,8 @@
 <?php
+require_once dirname(__DIR__) . '/data/image_upload.php';
 require_once dirname(__DIR__) . '/admin/includes/auth.php';
 require_once __DIR__ . '/_booking.php';
+require_once dirname(__DIR__) . '/data/owned_media.php';
 
 $business = getAuthenticatedBarber();
 if (!$business) {
@@ -40,45 +42,12 @@ function businessNotify(int $businessId, string $title, string $message, string 
 }
 
 function businessUploadImage(array $file, int $businessId, string $folder = 'gallery'): string {
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'] ?? '')) {
-        throw new RuntimeException('Fotoğraf yüklenemedi.');
-    }
-    if (($file['size'] ?? 0) < 1 || $file['size'] > 5 * 1024 * 1024) {
-        throw new RuntimeException('Fotoğraf en fazla 5 MB olabilir.');
-    }
-
-    $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime = $finfo->file($file['tmp_name']);
-    $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-    if (!isset($extensions[$mime]) || @getimagesize($file['tmp_name']) === false) {
-        throw new RuntimeException('Yalnızca geçerli JPG, PNG veya WEBP fotoğraf yükleyebilirsiniz.');
-    }
-
-    $directory = dirname(__DIR__) . '/uploads/isletme/' . $businessId . '/' . $folder;
-    if (!is_dir($directory) && !mkdir($directory, 0750, true) && !is_dir($directory)) {
-        throw new RuntimeException('Fotoğraf klasörü oluşturulamadı.');
-    }
-
-    $filename = bin2hex(random_bytes(20)) . '.' . $extensions[$mime];
-    if (!move_uploaded_file($file['tmp_name'], $directory . '/' . $filename)) {
-        throw new RuntimeException('Fotoğraf diske kaydedilemedi.');
-    }
-
-    return 'uploads/isletme/' . $businessId . '/' . $folder . '/' . $filename;
+    if ($businessId < 1 || !in_array($folder, ['gallery', 'employees'], true)) throw new RuntimeException('Ge?ersiz y?kleme dizini.');
+    return storeUploadImage($file, 2 * 1024 * 1024, 'uploads/isletme/' . $businessId . '/' . $folder);
 }
 
 function businessDeleteOwnedFile(string $relativePath, int $businessId): void {
-    $baseDirectory = realpath(dirname(__DIR__) . '/uploads/isletme/' . $businessId);
-    $candidate = realpath(dirname(__DIR__) . '/' . ltrim($relativePath, '/\\'));
-    if ($baseDirectory === false || $candidate === false || !is_file($candidate)) {
-        return;
-    }
-    $prefix = $baseDirectory . DIRECTORY_SEPARATOR;
-    if (strncmp($candidate, $prefix, strlen($prefix)) === 0) {
-        if (!unlink($candidate)) {
-            throw new RuntimeException('İşletmeye ait fotoğraf dosyası silinemedi.');
-        }
-    }
+    deleteOwnedMedia($relativePath, $businessId);
 }
 
 function businessValidDate(string $date): bool {

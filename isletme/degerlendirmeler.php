@@ -35,7 +35,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $errors[] = 'Değerlendirme kaydedilemedi.';
         }
     } catch (Throwable $e) {
-        $errors[] = $e instanceof RuntimeException ? $e->getMessage() : 'Değerlendirme kaydedilemedi.';
+        $errors[] = ($e instanceof RuntimeException && !($e instanceof PDOException)) ? $e->getMessage() : 'Değerlendirme kaydedilemedi.';
     }
 }
 

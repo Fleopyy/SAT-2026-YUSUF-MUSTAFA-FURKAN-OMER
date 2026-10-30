@@ -156,12 +156,7 @@ include __DIR__ . '/../includes/header.php';
                     </div>
                     <div>
                         <label class="form-label" style="font-weight:700;font-size:13px;display:block;margin-bottom:6px;">Durum</label>
-                        <select name="durum" class="form-control" style="width:100%;box-sizing:border-box;height:42px;">
-                            <option value="active" <?= $editBusiness['durum'] === 'active' ? 'selected' : '' ?>>Aktif (Yayında)</option>
-                            <option value="suspended" <?= $editBusiness['durum'] === 'suspended' ? 'selected' : '' ?>>Askıya Alındı</option>
-                            <option value="pending" <?= $editBusiness['durum'] === 'pending' ? 'selected' : '' ?>>Beklemede</option>
-                            <option value="rejected" <?= $editBusiness['durum'] === 'rejected' ? 'selected' : '' ?>>Reddedildi</option>
-                        </select>
+                        <span><?= e($editBusiness['durum']) ?></span>
                     </div>
                 </div>
 
@@ -318,20 +313,35 @@ include __DIR__ . '/../includes/header.php';
                        
 <div class="admin-panel" style="margin-bottom:20px;">
     <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
-        <div style="display:flex;align-items:center;gap:8px;">
-            <a href="?status=all<?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" class="btn <?= $statusFilter === 'all' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">Tümü</a>
-            <a href="?status=active<?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" class="btn <?= $statusFilter === 'active' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">Aktif</a>
-            <a href="?status=suspended<?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" class="btn <?= $statusFilter === 'suspended' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">Askıda</a>
-            <a href="?status=pending<?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" class="btn <?= $statusFilter === 'pending' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">Beklemede</a>
+        <div style="display:flex;align-items:center;gap:8px;overflow-x:auto;">
+            <a href="?status=all<?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" class="btn <?= $statusFilter === 'all' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">
+                <i class="fa-solid fa-layer-group"></i> Tümü
+            </a>
+            <a href="?status=active<?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" class="btn <?= $statusFilter === 'active' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">
+                <i class="fa-solid fa-circle-check"></i> Aktif
+            </a>
+            <a href="?status=suspended<?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" class="btn <?= $statusFilter === 'suspended' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">
+                <i class="fa-solid fa-ban"></i> Askıda
+            </a>
+            <a href="?status=pending<?= !empty($search) ? '&q=' . urlencode($search) : '' ?>" class="btn <?= $statusFilter === 'pending' ? 'btn-primary' : 'btn-secondary' ?> btn-sm">
+                <i class="fa-solid fa-clock"></i> Beklemede
+            </a>
         </div>
 
-        <form method="GET" action="" style="display:flex;gap:8px;">
+        <form method="GET" action="" style="display:flex;gap:8px;align-items:center;">
             <input type="hidden" name="status" value="<?= e($statusFilter) ?>">
             <div style="position:relative;">
                 <input type="text" name="q" value="<?= e($search) ?>" placeholder="İşletme adı, il, yetkili..." class="form-control" style="padding-left:36px;width:240px;height:38px;">
                 <i class="fa-solid fa-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#94A3B8;font-size:13px;"></i>
             </div>
-            <button type="submit" class="btn btn-secondary btn-sm" style="height:38px;">Ara</button>
+            <button type="submit" class="btn btn-primary btn-sm" style="height:38px;">
+                <i class="fa-solid fa-magnifying-glass"></i> Ara
+            </button>
+            <?php if (!empty($search)): ?>
+                <a href="?status=<?= e($statusFilter) ?>" class="btn btn-secondary btn-sm" style="height:38px;color:#DC2626;" title="Aramayı Temizle">
+                    <i class="fa-solid fa-xmark"></i>
+                </a>
+            <?php endif; ?>
         </form>
     </div>
 </div>
@@ -394,24 +404,26 @@ include __DIR__ . '/../includes/header.php';
                                     </span>
                                 </td>
                                 <td style="text-align:right;white-space:nowrap;">
-                                    <a href="?id=<?= $b['id'] ?>" class="btn btn-secondary btn-sm" title="Detay">
-                                        <i class="fa-regular fa-eye"></i> Detay
-                                    </a>
-                                    <?php if (canCurrentUser('businesses.edit')): ?>
-                                        <a href="?edit=<?= $b['id'] ?>" class="btn btn-secondary btn-sm" title="Düzenle">
-                                            <i class="fa-solid fa-pen"></i>
+                                    <div class="table-actions">
+                                        <a href="?id=<?= $b['id'] ?>" class="btn btn-secondary btn-sm" title="Detaylı İncele">
+                                            <i class="fa-regular fa-eye"></i> Detay
                                         </a>
-                                    <?php endif; ?>
-                                    <?php if (canCurrentUser('businesses.suspend') || canCurrentUser('businesses.reactivate')): ?>
-                                        <form method="POST" action="/admin/actions/business_action.php" style="display:inline;" onsubmit="return confirm('İşletme durumunu değiştirmek istediğinize emin misiniz?');">
-                                            <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
-                                            <input type="hidden" name="action" value="toggle_status">
-                                            <input type="hidden" name="business_id" value="<?= $b['id'] ?>">
-                                            <button type="submit" class="btn btn-sm" style="background:<?= $b['durum'] === 'active' ? '#FEF3C7;color:#92400E' : '#D1FAE5;color:#065F46' ?>;border:none;" title="<?= $b['durum'] === 'active' ? 'Askıya Al' : 'Aktifleştir' ?>">
-                                                <i class="fa-solid <?= $b['durum'] === 'active' ? 'fa-pause' : 'fa-play' ?>"></i>
-                                            </button>
-                                        </form>
-                                    <?php endif; ?>
+                                        <?php if (canCurrentUser('businesses.edit')): ?>
+                                            <a href="?edit=<?= $b['id'] ?>" class="action-btn action-btn-edit" title="Düzenle">
+                                                <i class="fa-solid fa-pen"></i>
+                                            </a>
+                                        <?php endif; ?>
+                                        <?php if (in_array($b['durum'], ['active', 'suspended'], true) && canCurrentUser($b['durum'] === 'active' ? 'businesses.suspend' : 'businesses.reactivate')): ?>
+                                            <form method="POST" action="/admin/actions/business_action.php" style="display:inline;" onsubmit="return confirm('İşletme durumunu değiştirmek istediğinize emin misiniz?');">
+                                                <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                                <input type="hidden" name="action" value="toggle_status">
+                                                <input type="hidden" name="business_id" value="<?= $b['id'] ?>">
+                                                <button type="submit" class="action-btn <?= $b['durum'] === 'active' ? 'action-btn-warning' : 'action-btn-success' ?>" title="<?= $b['durum'] === 'active' ? 'Askıya Al' : 'Aktifleştir' ?>">
+                                                    <i class="fa-solid <?= $b['durum'] === 'active' ? 'fa-pause' : 'fa-play' ?>"></i>
+                                                </button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>

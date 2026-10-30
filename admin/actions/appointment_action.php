@@ -69,6 +69,13 @@ if (!canAccessBusiness((int)$apt['isletme_id'])) {
 $stmt = $pdo->prepare("UPDATE randevular SET durum = ? WHERE id = ?");
 $stmt->execute([$newStatus, $appointmentId]);
 
+try {
+    require_once __DIR__ . '/../../data/appointment_notification_service.php';
+    notifyAppointmentStatusChanged((int)$appointmentId, $newStatus, (string)$apt['durum']);
+} catch (Throwable $mailEx) {
+    error_log('Admin appointment status notification error: ' . $mailEx->getMessage());
+}
+
 logAdminAction('appointment_status_change', 'randevular', $appointmentId, "Randevu durumu '{$newStatus}' olarak güncellendi. (Müşteri: {$apt['musteri_adi']}, İşletme: {$apt['isletme_adi']})");
 
 $statusLabels = [

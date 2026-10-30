@@ -1,5 +1,7 @@
 <?php
+require_once dirname(__DIR__) . '/data/image_upload.php';
 require_once dirname(__DIR__) . '/admin/includes/auth.php';
+require_once dirname(__DIR__) . '/data/customer_auth_service.php';
 
 $customerId = filter_var($_SESSION['user_id'] ?? null, FILTER_VALIDATE_INT);
 if (($_SESSION['user_role'] ?? '') !== 'customer' || !$customerId) {
@@ -7,7 +9,7 @@ if (($_SESSION['user_role'] ?? '') !== 'customer' || !$customerId) {
     exit;
 }
 
-$customerStatement = $pdo->prepare('SELECT id, ad_soyad, telefon, eposta FROM kullanicilar WHERE id = ?');
+$customerStatement = $pdo->prepare('SELECT id, ad_soyad, telefon, eposta, eposta_dogrulandi FROM kullanicilar WHERE id = ?');
 $customerStatement->execute([$customerId]);
 $customer = $customerStatement->fetch(PDO::FETCH_ASSOC);
 if (!$customer) {
@@ -51,26 +53,8 @@ function customerCreateAppointmentReview(PDO $pdo, int $customerId, int $appoint
 }
 
 function customerUploadPhoto(array $file, int $customerId): string {
-    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !is_uploaded_file($file['tmp_name'] ?? '')) {
-        throw new RuntimeException('Profil fotoğrafı yüklenemedi.');
-    }
-    if (($file['size'] ?? 0) < 1 || $file['size'] > 5 * 1024 * 1024) {
-        throw new RuntimeException('Profil fotoğrafı en fazla 5 MB olabilir.');
-    }
-    $mime = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
-    $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-    if (!isset($extensions[$mime]) || @getimagesize($file['tmp_name']) === false) {
-        throw new RuntimeException('Yalnızca geçerli JPG, PNG veya WEBP fotoğraf yükleyebilirsiniz.');
-    }
-    $directory = dirname(__DIR__) . '/uploads/musteri/' . $customerId;
-    if (!is_dir($directory) && !mkdir($directory, 0750, true) && !is_dir($directory)) {
-        throw new RuntimeException('Profil fotoğrafı klasörü oluşturulamadı.');
-    }
-    $path = $directory . '/' . bin2hex(random_bytes(20)) . '.' . $extensions[$mime];
-    if (!move_uploaded_file($file['tmp_name'], $path)) {
-        throw new RuntimeException('Profil fotoğrafı diske kaydedilemedi.');
-    }
-    return 'uploads/musteri/' . $customerId . '/' . basename($path);
+    if ($customerId < 1) throw new RuntimeException('Ge?ersiz kullan?c?.');
+    return storeUploadImage($file, 5 * 1024 * 1024, 'uploads/musteri/' . $customerId);
 }
 
 $customerProfileStatement = $pdo->prepare('SELECT fotograf_yolu FROM kullanici_portal_profilleri WHERE kullanici_id = ?');

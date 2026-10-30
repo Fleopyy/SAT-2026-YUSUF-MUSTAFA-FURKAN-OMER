@@ -41,10 +41,8 @@ if (!$business) {
                                                
 if (!canAccessBusiness($businessId)) {
     http_response_code(403);
-    logAdminAction('idor_attempt_blocked', 'isletmeler', $businessId, "Yetkisiz işletme erişim/düzenleme denemesi engellendi.");
-    $_SESSION['flash_error'] = 'Bu işletme üzerinde işlem yapma yetkiniz bulunmamaktadır.';
-    header('Location: /admin/pages/businesses.php');
-    exit;
+    error_log('idor_attempt_blocked: business=' . $businessId);
+    exit('Forbidden');
 }
 
 switch ($action) {
@@ -63,7 +61,6 @@ switch ($action) {
         $ilce = trim($_POST['ilce'] ?? '');
         $tamAdres = trim($_POST['tam_adres'] ?? '');
         $aciklama = trim($_POST['aciklama'] ?? '');
-        $durum = $_POST['durum'] ?? 'active';
 
         if (empty($isletmeAdi) || empty($isletmeSahibi) || empty($telefon) || empty($eposta)) {
             $_SESSION['flash_error'] = 'Lütfen tüm zorunlu alanları (İşletme adı, yetkili, telefon, e-posta) doldurun.';
@@ -80,15 +77,11 @@ switch ($action) {
             exit;
         }
 
-        if (!in_array($durum, ['pending', 'active', 'suspended', 'rejected'])) {
-            $durum = $business['durum'];
-        }
-
         $stmt = $pdo->prepare("UPDATE isletmeler SET 
             isletme_adi = ?, isletme_sahibi = ?, telefon = ?, eposta = ?, 
-            sehir = ?, ilce = ?, tam_adres = ?, aciklama = ?, durum = ? 
+            sehir = ?, ilce = ?, tam_adres = ?, aciklama = ? 
             WHERE id = ?");
-        $stmt->execute([$isletmeAdi, $isletmeSahibi, $telefon, $eposta, $sehir, $ilce, $tamAdres, $aciklama, $durum, $businessId]);
+        $stmt->execute([$isletmeAdi, $isletmeSahibi, $telefon, $eposta, $sehir, $ilce, $tamAdres, $aciklama, $businessId]);
 
         logAdminAction('business_update', 'isletmeler', $businessId, "İşletme bilgileri güncellendi: {$isletmeAdi}");
         $_SESSION['flash_success'] = "'{$isletmeAdi}' işletme bilgileri başarıyla güncellendi.";
@@ -96,15 +89,22 @@ switch ($action) {
         exit;
 
     case 'toggle_status':
-        if (!isCurrentUserAdmin() && !canCurrentUser('businesses.suspend')) {
-            $_SESSION['flash_error'] = 'Durum değiştirme yetkiniz bulunmuyor.';
-            header('Location: /admin/pages/businesses.php');
-            exit;
+        if (!in_array($business['durum'], ['active', 'suspended'], true)) {
+            http_response_code(409);
+            exit('Basvuru onay sureci gerekli.');
+        }
+        if (!isCurrentUserAdmin() && !canCurrentUser($business['durum'] === 'active' ? 'businesses.suspend' : 'businesses.reactivate')) {
+            http_response_code(403);
+            exit('Forbidden');
         }
 
         $newStatus = ($business['durum'] === 'active') ? 'suspended' : 'active';
-        $stmt = $pdo->prepare("UPDATE isletmeler SET durum = ? WHERE id = ?");
-        $stmt->execute([$newStatus, $businessId]);
+        $stmt = $pdo->prepare("UPDATE isletmeler SET durum = ? WHERE id = ? AND durum = ?");
+        $stmt->execute([$newStatus, $businessId, $business['durum']]);
+        if ($stmt->rowCount() !== 1) {
+            http_response_code(409);
+            exit('Isletme durumu degisti. Sayfayi yenileyin.');
+        }
 
         $statusText = $newStatus === 'active' ? 'aktifleştirildi' : 'askıya alındı';
         logAdminAction('business_status_change', 'isletmeler', $businessId, "İşletme durumu değiştirildi: {$statusText}");

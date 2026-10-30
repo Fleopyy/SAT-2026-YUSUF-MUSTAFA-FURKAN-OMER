@@ -1,4 +1,11 @@
 <?php
+// Maintenance and test tools must never run through HTTP.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Forbidden');
+}
+
+
 require_once __DIR__ . '/data/database.php';
 
 $tables = $pdo->query('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);

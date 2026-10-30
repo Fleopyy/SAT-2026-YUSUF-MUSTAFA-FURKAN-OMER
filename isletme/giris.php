@@ -18,13 +18,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     } elseif (!checkLoginRateLimit($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0', 5, 15)) {
         $error = 'Çok fazla başarısız giriş denemesi. Lütfen 15 dakika sonra tekrar deneyin.';
     } elseif ($loginInput === '' || $password === '') {
+        recordLoginAttempt($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0', $loginInput, false);
         $error = 'E-posta/telefon ve şifre alanlarını doldurun.';
     } else {
         $stmt = $pdo->prepare('SELECT id, isletme_adi, sifre_hash, durum FROM isletmeler WHERE eposta = ? OR telefon = ? LIMIT 1');
         $stmt->execute([$loginInput, $loginInput]);
         $business = $stmt->fetch(PDO::FETCH_ASSOC);
         $passwordMatches = $business
-            && (password_verify($password, $business['sifre_hash']) || hash_equals($business['sifre_hash'], $password));
+            && password_verify($password, $business['sifre_hash']);
 
         if (!$passwordMatches) {
             recordLoginAttempt($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0', $loginInput, false);
@@ -38,7 +39,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 default => 'İşletme hesabınız şu anda giriş yapamıyor.',
             };
         } else {
-            session_regenerate_id(true);
+            renewAuthenticatedSession('barber', $business['sifre_hash']);
             unset(
                 $_SESSION['admin_id'], $_SESSION['admin_role'], $_SESSION['admin_name'],
                 $_SESSION['manager_id'], $_SESSION['manager_role'], $_SESSION['manager_name'],

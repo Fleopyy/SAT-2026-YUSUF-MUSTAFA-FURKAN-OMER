@@ -7,7 +7,34 @@ $errors = [];
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     customerRequirePost();
     try {
-        if (($_POST['action'] ?? '') !== 'review') {
+        if (($_POST['action'] ?? '') === 'cancel') {
+            $appointmentId = filter_var($_POST['appointment_id'] ?? null, FILTER_VALIDATE_INT);
+            if (!$appointmentId) {
+                throw new RuntimeException('Geçersiz randevu.');
+            }
+            $pdo->beginTransaction();
+            $stmt = $pdo->prepare('SELECT durum FROM randevular WHERE id = ? AND kullanici_id = ? FOR UPDATE');
+            $stmt->execute([$appointmentId, $customerId]);
+            $oldDurum = $stmt->fetchColumn();
+            if (!$oldDurum || !in_array($oldDurum, ['pending', 'confirmed'], true)) {
+                $pdo->rollBack();
+                throw new RuntimeException('Bu randevu iptal edilemez.');
+            }
+            $stmt = $pdo->prepare("UPDATE randevular SET durum = 'cancelled' WHERE id = ? AND kullanici_id = ?");
+            $stmt->execute([$appointmentId, $customerId]);
+            $pdo->commit();
+
+            try {
+                require_once __DIR__ . '/../data/appointment_notification_service.php';
+                notifyAppointmentStatusChanged((int)$appointmentId, 'cancelled', (string)$oldDurum);
+            } catch (Throwable $e) {
+                error_log('Appointment cancel notification error: ' . $e->getMessage());
+            }
+
+            customerFlash('success', 'Randevunuz iptal edildi.');
+            header('Location: /musteri/randevularim.php');
+            exit;
+        } elseif (($_POST['action'] ?? '') !== 'review') {
             throw new RuntimeException('İşlem tanınmadı.');
         }
         $appointmentId = filter_var($_POST['appointment_id'] ?? null, FILTER_VALIDATE_INT);
@@ -28,7 +55,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $errors[] = 'Yorumun kaydedilemedi. Lütfen tekrar dene.';
         }
     } catch (Throwable $e) {
-        $errors[] = $e instanceof RuntimeException ? $e->getMessage() : 'Yorumun kaydedilemedi. Lütfen tekrar dene.';
+        $errors[] = ($e instanceof RuntimeException && !($e instanceof PDOException)) ? $e->getMessage() : 'Yorumun kaydedilemedi. Lütfen tekrar dene.';
     }
 }
 
@@ -101,7 +128,15 @@ include __DIR__ . '/_header.php';
                     <div class="col-sm-6"><span class="customer-muted">Ücret</span><div class="fw-semibold"><?= number_format((float)($appointment['fiyat_snapshot'] ?? $appointment['fiyat'] ?? 0), 2, ',', '.') ?> ₺</div></div>
                 </div>
                 <?php if ($appointment['musteri_notu']): ?><p class="customer-muted small mb-0 mt-3">Notun: <?= customerEscape($appointment['musteri_notu']) ?></p><?php endif; ?>
-                <a class="btn btn-sm btn-outline-secondary mt-3" href="/berber.php?id=<?= (int)$appointment['isletme_id'] ?>">İşletme profili</a>
+                <div class="d-flex gap-2 mt-3">
+                    <a class="btn btn-sm btn-outline-secondary" href="/berber.php?id=<?= (int)$appointment['isletme_id'] ?>">İşletme profili</a>
+                    <form method="POST" action="/musteri/randevularim.php" class="d-inline" onsubmit="return confirm('Randevunuzu iptal etmek istediğinize emin misiniz?');">
+                        <input type="hidden" name="_csrf_token" value="<?= customerCsrfToken() ?>">
+                        <input type="hidden" name="action" value="cancel">
+                        <input type="hidden" name="appointment_id" value="<?= (int)$appointment['id'] ?>">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">İptal Et</button>
+                    </form>
+                </div>
             </article>
         <?php endforeach; ?>
     <?php endif; ?>

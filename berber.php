@@ -1,9 +1,6 @@
 <?php
 require_once __DIR__ . '/data/database.php';
 require_once __DIR__ . '/admin/includes/auth.php';
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
 
 $businessId = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
 if (!$businessId) {

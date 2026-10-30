@@ -6,11 +6,12 @@ Options -Indexes +FollowSymLinks
 RewriteEngine On
 
 <IfModule mod_headers.c>
-    Header set X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"
-    Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
-    Header set Pragma "no-cache"
-    Header set X-Content-Type-Options "nosniff"
-    Header set X-Frame-Options "SAMEORIGIN"
+    Header onsuccess unset X-Robots-Tag
+    Header always set X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"
+    Header onsuccess unset Cache-Control
+    Header always set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header onsuccess unset Pragma
+    Header always set Pragma "no-cache"
 </IfModule>
 
 RewriteCond %{REQUEST_FILENAME} !-f

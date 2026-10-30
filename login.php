@@ -1,10 +1,16 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-require_once __DIR__ . '/data/database.php';
+require_once __DIR__ . '/data/security.php';
+require_once __DIR__ . '/data/customer_auth_service.php';
+require_once __DIR__ . '/data/two_factor_service.php';
 
-if (isset($_GET['action']) && $_GET['action'] === 'logout') {
+if (($_GET['action'] ?? '') === 'logout') {
+    http_response_code(405);
+    header('Allow: POST');
+    exit('??k?? i?in POST iste?i gereklidir.');
+}
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'logout') {
+    requireCsrf();
     session_unset();
     session_destroy();
     header("Location: index.php");
@@ -12,6 +18,13 @@ if (isset($_GET['action']) && $_GET['action'] === 'logout') {
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+    requireCsrf();
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    if (!checkLoginRateLimit($ip)) {
+        http_response_code(429);
+        exit('?ok fazla deneme. 15 dakika sonra tekrar deneyin.');
+    }
+    $attemptSuccessful = false;
     $action = $_POST['action'] ?? '';
 
     if ($action === 'customer_login') {
@@ -23,7 +36,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $stmt->execute([$email]);
             $user = $stmt->fetch();
 
-            if ($user && (password_verify($password, $user['sifre_hash']) || $password === $user['sifre_hash'])) {
+            if ($user && password_verify($password, $user['sifre_hash'])) {
+                renewAuthenticatedSession('user', $user['sifre_hash']);
+                $attemptSuccessful = true;
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['user_name'] = $user['ad_soyad'];
                 $_SESSION['user_role'] = 'customer';
@@ -37,38 +52,56 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $_SESSION['mesaj'] = "Lütfen e-posta ve şifrenizi girin.";
             $_SESSION['mesaj_turu'] = "warning";
         }
+        recordLoginAttempt($ip, trim((string)($_POST['eposta'] ?? $_POST['email'] ?? $_POST['telefon'] ?? $_POST['business_login'] ?? '')), $attemptSuccessful);
         header("Location: index.php");
         exit;
     }
 
     if ($action === 'customer_register') {
-        $fullName = trim($_POST['ad_soyad'] ?? $_POST['full_name'] ?? '');
-        $phone    = trim($_POST['telefon'] ?? $_POST['phone'] ?? '');
-        $email    = trim($_POST['eposta'] ?? $_POST['email'] ?? '');
-        $password = $_POST['sifre'] ?? $_POST['password'] ?? '';
+        $fullName        = trim($_POST['ad_soyad'] ?? $_POST['full_name'] ?? '');
+        $phone           = trim($_POST['telefon'] ?? $_POST['phone'] ?? '');
+        $email           = trim($_POST['eposta'] ?? $_POST['email'] ?? '');
+        $city            = trim($_POST['sehir'] ?? '');
+        $password        = $_POST['sifre'] ?? $_POST['password'] ?? '';
+        $passwordConfirm = $_POST['sifre_tekrar'] ?? '';
 
-        if (!empty($fullName) && !empty($phone) && !empty($email) && !empty($password)) {
-            $check = $pdo->prepare("SELECT id FROM kullanicilar WHERE eposta = ? OR telefon = ?");
-            $check->execute([$email, $phone]);
-
-            if ($check->fetch()) {
-                $_SESSION['mesaj'] = "Bu e-posta veya telefon ile zaten bir kayıt bulunuyor!";
+        if (!empty($fullName) && !empty($phone) && !empty($email) && !empty($city) && !empty($password)) {
+            if (!validNewPassword($password) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $_SESSION['mesaj'] = 'Ge?erli e-posta ve 10-72 bayt uzunlu?unda ?ifre gereklidir.';
+                $_SESSION['mesaj_turu'] = 'danger';
+            } elseif ($password !== $passwordConfirm) {
+                $_SESSION['mesaj'] = "Girdiğiniz şifreler birbiriyle eşleşmiyor. Lütfen tekrar deneyin.";
                 $_SESSION['mesaj_turu'] = "danger";
             } else {
-                $hash = password_hash($password, PASSWORD_DEFAULT);
-                $stmt = $pdo->prepare("INSERT INTO kullanicilar (ad_soyad, telefon, eposta, sifre_hash) VALUES (?, ?, ?, ?)");
-                $stmt->execute([$fullName, $phone, $email, $hash]);
+                $check = $pdo->prepare("SELECT id FROM kullanicilar WHERE eposta = ? OR telefon = ?");
+                $check->execute([$email, $phone]);
 
-                $_SESSION['user_id'] = $pdo->lastInsertId();
-                $_SESSION['user_name'] = $fullName;
-                $_SESSION['user_role'] = 'customer';
-                $_SESSION['mesaj'] = "Kaydınız başarıyla oluşturuldu! Hoş geldiniz.";
-                $_SESSION['mesaj_turu'] = "success";
+                if ($check->fetch()) {
+                    $_SESSION['mesaj'] = 'Kay?t tamamlanamad?. Bilgilerinizi kontrol edin veya destek ile ileti?ime ge?in.';
+                    $_SESSION['mesaj_turu'] = "danger";
+                } else {
+                    $hash = password_hash($password, PASSWORD_DEFAULT);
+                    $stmt = $pdo->prepare("INSERT INTO kullanicilar (ad_soyad, telefon, eposta, sehir, sifre_hash, eposta_dogrulandi) VALUES (?, ?, ?, ?, ?, 0)");
+                    $stmt->execute([$fullName, $phone, $email, $city, $hash]);
+                    $newUserId = (int)$pdo->lastInsertId();
+
+                    // Kayıt sonrası otomatik e-posta doğrulama kodu gönder
+                    sendCustomerVerificationEmail($newUserId, $email, $fullName);
+
+                    renewAuthenticatedSession('user', $hash);
+                    $attemptSuccessful = true;
+                    $_SESSION['user_id'] = $newUserId;
+                    $_SESSION['user_name'] = $fullName;
+                    $_SESSION['user_role'] = 'customer';
+                    $_SESSION['mesaj'] = "Kaydınız başarıyla oluşturuldu! " . htmlspecialchars($email) . " adresinize 6 haneli doğrulama kodu gönderildi. Lütfen e-postanızı kontrol ederek hesabınızı doğrulayın.";
+                    $_SESSION['mesaj_turu'] = "success";
+                }
             }
         } else {
             $_SESSION['mesaj'] = "Lütfen tüm alanları eksiksiz doldurun.";
             $_SESSION['mesaj_turu'] = "warning";
         }
+        recordLoginAttempt($ip, trim((string)($_POST['eposta'] ?? $_POST['email'] ?? $_POST['telefon'] ?? $_POST['business_login'] ?? '')), $attemptSuccessful);
         header("Location: index.php");
         exit;
     }
@@ -82,7 +115,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $stmt->execute([$loginVal, $loginVal]);
             $barber = $stmt->fetch();
 
-            if ($barber && (password_verify($password, $barber['sifre_hash']) || $password === $barber['sifre_hash'])) {
+            if ($barber && password_verify($password, $barber['sifre_hash'])) {
                                                                                                
                 if ($barber['durum'] === 'pending') {
                     $_SESSION['mesaj'] = "İşletme hesabınız henüz onay aşamasındadır. Sistem yöneticisi onayından sonra giriş yapabilirsiniz.";
@@ -95,14 +128,33 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     $_SESSION['mesaj'] = "İşletme hesabınız askıya alınmıştır. Lütfen destek ekibi ile iletişime geçin.";
                     $_SESSION['mesaj_turu'] = "danger";
                 } else {
-                                                                   
-                    session_regenerate_id(true);
-                    $_SESSION['barber_id'] = $barber['id'];
-                    $_SESSION['barber_role'] = 'barber';
-                    $_SESSION['barber_name'] = $barber['isletme_adi'];
-                    $_SESSION['user_role'] = 'barber';
-                    $_SESSION['mesaj'] = "Giriş başarılı! Hoş geldiniz, " . htmlspecialchars($barber['isletme_adi']) . ".";
-                    $_SESSION['mesaj_turu'] = "success";
+                    $risk = evaluateBarberLoginRisk($barber);
+                    if ($risk['requires_2fa']) {
+                        $_SESSION['2fa_pending'] = [
+                            'type'    => 'barber',
+                            'user_id' => (int)$barber['id'],
+                            'rol'     => 'barber',
+                            'name'    => $barber['isletme_adi'],
+                            'email'   => $barber['eposta'],
+                            'hash'    => $barber['sifre_hash'],
+                            'reason'  => $risk['reason'],
+                            'expires' => time() + 300,
+                        ];
+                        sendBarber2faEmail((int)$barber['id'], $barber['eposta'], $barber['isletme_adi']);
+                        recordLoginAttempt($ip, $loginVal, true);
+                        header("Location: /isletme/giris.php?step=2fa");
+                        exit;
+                    } else {
+                        renewAuthenticatedSession('barber', $barber['sifre_hash']);
+                        $attemptSuccessful = true;
+                        $_SESSION['barber_id'] = $barber['id'];
+                        $_SESSION['barber_role'] = 'barber';
+                        $_SESSION['barber_name'] = $barber['isletme_adi'];
+                        $_SESSION['user_role'] = 'barber';
+                        $pdo->prepare("UPDATE isletmeler SET son_giris = NOW() WHERE id = ?")->execute([$barber['id']]);
+                        $_SESSION['mesaj'] = "Giriş başarılı! Hoş geldiniz, " . htmlspecialchars($barber['isletme_adi']) . ".";
+                        $_SESSION['mesaj_turu'] = "success";
+                    }
                 }
             } else {
                 $_SESSION['mesaj'] = "Hatalı işletme bilgisi veya şifre girdiniz!";
@@ -112,59 +164,74 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $_SESSION['mesaj'] = "Lütfen işletme bilginizi ve şifrenizi girin.";
             $_SESSION['mesaj_turu'] = "warning";
         }
+        recordLoginAttempt($ip, trim((string)($_POST['eposta'] ?? $_POST['email'] ?? $_POST['telefon'] ?? $_POST['business_login'] ?? '')), $attemptSuccessful);
         header("Location: index.php");
         exit;
     }
 
     if ($action === 'barber_register') {
-        $ownerName = trim($_POST['isletme_sahibi'] ?? $_POST['owner_name'] ?? '');
-        $shopName  = trim($_POST['isletme_adi'] ?? $_POST['shop_name'] ?? '');
-        $phone     = trim($_POST['telefon'] ?? $_POST['phone'] ?? '');
-        $email     = trim($_POST['eposta'] ?? $_POST['email'] ?? '');
-        $city      = trim($_POST['sehir'] ?? $_POST['city'] ?? '');
-        $district  = trim($_POST['ilce'] ?? $_POST['district'] ?? '');
-        $tamAdres  = trim($_POST['tam_adres'] ?? $_POST['address'] ?? '');
-        $password  = $_POST['sifre'] ?? $_POST['password'] ?? '';
+        $ownerName       = trim($_POST['isletme_sahibi'] ?? $_POST['owner_name'] ?? '');
+        $shopName        = trim($_POST['isletme_adi'] ?? $_POST['shop_name'] ?? '');
+        $phone           = trim($_POST['telefon'] ?? $_POST['phone'] ?? '');
+        $email           = trim($_POST['eposta'] ?? $_POST['email'] ?? '');
+        $city            = trim($_POST['sehir'] ?? $_POST['city'] ?? '');
+        $district        = trim($_POST['ilce'] ?? $_POST['district'] ?? '');
+        $tamAdres        = trim($_POST['tam_adres'] ?? $_POST['address'] ?? '');
+        $password        = $_POST['sifre'] ?? $_POST['password'] ?? '';
+        $passwordConfirm = $_POST['sifre_tekrar'] ?? '';
 
         if (!empty($ownerName) && !empty($shopName) && !empty($phone) && !empty($password)) {
-            if (empty($email)) {
-                $email = preg_replace('/[^0-9]/', '', $phone) . "@bitiras.com";
-            }
-
-            $check = $pdo->prepare("SELECT id FROM isletmeler WHERE eposta = ? OR telefon = ?");
-            $check->execute([$email, $phone]);
-
-            if ($check->fetch()) {
-                $_SESSION['mesaj'] = "Bu telefon veya e-posta ile kayıtlı bir işletme zaten var!";
+            if (!validNewPassword($password) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $_SESSION['mesaj'] = 'Ge?erli e-posta ve 10-72 bayt uzunlu?unda ?ifre gereklidir.';
+                $_SESSION['mesaj_turu'] = 'danger';
+            } elseif ($password !== $passwordConfirm) {
+                $_SESSION['mesaj'] = "Girdiğiniz şifreler birbiriyle eşleşmiyor. Lütfen tekrar deneyin.";
                 $_SESSION['mesaj_turu'] = "danger";
             } else {
-                $hash = password_hash($password, PASSWORD_DEFAULT);
-                                                                                    
-                $stmt = $pdo->prepare("INSERT INTO isletmeler (isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce, tam_adres, sifre_hash, durum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')");
-                $stmt->execute([$ownerName, $shopName, $phone, $email, $city, $district, $tamAdres, $hash]);
-                $newBusinessId = (int)$pdo->lastInsertId();
 
-                                                               
-                try {
-                    $stmtNotif = $pdo->prepare("INSERT INTO bildirimler (baslik, mesaj, tur, link) VALUES (?, ?, 'info', ?)");
-                    $stmtNotif->execute([
-                        "Yeni İşletme Başvurusu: " . $shopName,
-                        "{$ownerName} ({$phone}) yeni bir berber işletmesi kaydı oluşturdu. Onaylamak için tıklayın.",
-                        "/admin/pages/applications.php?detail=" . $newBusinessId
-                    ]);
-                } catch (Exception $e) {}
+                $check = $pdo->prepare("SELECT id FROM isletmeler WHERE eposta = ? OR telefon = ?");
+                $check->execute([$email, $phone]);
 
-                                                                          
-                unset($_SESSION['barber_id'], $_SESSION['barber_name'], $_SESSION['user_role']);
-                $_SESSION['mesaj'] = "İşletme kaydınız başarıyla alındı! Hesabınız sistem yöneticisi onayından sonra aktif hale gelecektir.";
-                $_SESSION['mesaj_turu'] = "info";
+                if ($check->fetch()) {
+                    $_SESSION['mesaj'] = 'Kay?t tamamlanamad?. Bilgilerinizi kontrol edin veya destek ile ileti?ime ge?in.';
+                    $_SESSION['mesaj_turu'] = "danger";
+                } else {
+                    $hash = password_hash($password, PASSWORD_DEFAULT);
+                                                                                        
+                    $stmt = $pdo->prepare("INSERT INTO isletmeler (isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce, tam_adres, sifre_hash, durum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')");
+                    $stmt->execute([$ownerName, $shopName, $phone, $email, $city, $district, $tamAdres, $hash]);
+                    $newBusinessId = (int)$pdo->lastInsertId();
+                    $attemptSuccessful = true;
+
+                    try {
+                        $stmtNotif = $pdo->prepare("INSERT INTO bildirimler (baslik, mesaj, tur, link) VALUES (?, ?, 'info', ?)");
+                        $stmtNotif->execute([
+                            "Yeni İşletme Başvurusu: " . $shopName,
+                            "{$ownerName} ({$phone}) yeni bir berber işletmesi kaydı oluşturdu. Onaylamak için tıklayın.",
+                            "/admin/pages/applications.php?detail=" . $newBusinessId
+                        ]);
+                    } catch (Exception $e) {}
+
+                    unset($_SESSION['barber_id'], $_SESSION['barber_name'], $_SESSION['user_role']);
+                    $_SESSION['mesaj'] = "İşletme kaydınız başarıyla alındı! Hesabınız sistem yöneticisi onayından sonra aktif hale gelecektir.";
+                    $_SESSION['mesaj_turu'] = "info";
+                }
             }
         } else {
             $_SESSION['mesaj'] = "Lütfen zorunlu alanları doldurun.";
             $_SESSION['mesaj_turu'] = "warning";
         }
+        recordLoginAttempt($ip, trim((string)($_POST['eposta'] ?? $_POST['email'] ?? $_POST['telefon'] ?? $_POST['business_login'] ?? '')), $attemptSuccessful);
         header("Location: index.php");
         exit;
+    }
+}
+
+$turkeyDistricts = [];
+if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
+    $decodedDistricts = json_decode(file_get_contents(__DIR__ . '/data/turkey_districts.json'), true);
+    if (!empty($decodedDistricts['districts'])) {
+        $turkeyDistricts = $decodedDistricts['districts'];
     }
 }
 ?>
@@ -228,6 +295,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
                                 <div class="tab-pane fade show active" id="cust-login-pane" role="tabpanel">
                                     <form id="formCustomerLogin" method="POST" action="login.php" class="auth-form">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                         <input type="hidden" name="action" value="customer_login">
                                         <input type="hidden" name="role" value="customer">
 
@@ -244,8 +312,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                                             <div class="d-flex justify-content-between align-items-center">
                                                 <label for="custLoginPass"
                                                     class="form-label fw-bold text-xs text-uppercase text-muted">Şifre</label>
-                                                <a href="javascript:void(0)"
-                                                    onclick="alert('Şifre sıfırlama için yöneticinizle iletişime geçin.')"
+                                                <a href="/sifre_sifirla.php"
                                                     class="text-xs fw-bold" style="color: var(--accent);">Şifremi
                                                     Unuttum?</a>
                                             </div>
@@ -260,7 +327,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                                 </div>
 
                                 <div class="tab-pane fade" id="cust-reg-pane" role="tabpanel">
-                                    <form id="formCustomerRegister" method="POST" action="login.php" class="auth-form">
+                                    <form id="formCustomerRegister" method="POST" action="login.php" class="auth-form" novalidate>
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                         <input type="hidden" name="action" value="customer_register">
                                         <input type="hidden" name="role" value="customer">
 
@@ -290,17 +358,372 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                                         </div>
 
                                         <div class="mb-3">
+                                            <label id="custCityLabel"
+                                                class="form-label fw-bold text-xs text-uppercase text-muted"
+                                                style="cursor: pointer; user-select: none;">
+                                                <i class="fa-solid fa-location-dot me-1" style="color:var(--accent);"></i>Şehir</label>
+                                            <div class="cust-city-combobox" id="custCityCombobox">
+                                                <input type="text" id="custRegCity" name="sehir" required
+                                                    placeholder="Şehir yazın veya seçin..."
+                                                    autocomplete="chrome-off"
+                                                    data-lpignore="true"
+                                                    role="combobox"
+                                                    aria-autocomplete="list"
+                                                    aria-expanded="false"
+                                                    aria-controls="custCityDropdown"
+                                                    class="form-control form-control-lg fs-6 pe-5">
+                                                <button type="button" class="cust-city-toggle" id="custCityToggleBtn" tabindex="-1" aria-label="Şehir listesini aç veya kapat">
+                                                    <i class="fa-solid fa-chevron-down"></i>
+                                                </button>
+                                                <div id="custCityDropdown" class="cust-city-dropdown" role="listbox" hidden></div>
+                                            </div>
+                                        </div>
+
+                                        <div class="mb-3">
                                             <label for="custRegPass"
                                                 class="form-label fw-bold text-xs text-uppercase text-muted">Şifre
                                                 Belirleyin</label>
-                                            <input type="password" id="custRegPass" name="sifre" required
-                                                placeholder="••••••••" class="form-control form-control-lg fs-6">
+                                            <div class="input-group">
+                                                <input type="password" id="custRegPass" name="sifre" required minlength="10" maxlength="72" title="?ifre 10-72 bayt uzunlu?unda olmal?d?r"
+                                                    placeholder="••••••••" class="form-control form-control-lg fs-6"
+                                                    autocomplete="new-password">
+                                                <button class="btn btn-outline-secondary" type="button"
+                                                    onclick="togglePassVis('custRegPass', this)" tabindex="-1"
+                                                    aria-label="Şifreyi göster/gizle">
+                                                    <i class="fa-solid fa-eye"></i>
+                                                </button>
+                                            </div>
                                         </div>
 
-                                        <button type="submit" class="btn btn-primary btn-lg w-100 fs-6 py-3 mt-2">
+                                        <div class="mb-3">
+                                            <label for="custRegPassConfirm"
+                                                class="form-label fw-bold text-xs text-uppercase text-muted">Şifre
+                                                Tekrarı</label>
+                                            <div class="input-group">
+                                                <input type="password" id="custRegPassConfirm" name="sifre_tekrar" required
+                                                    placeholder="••••••••" class="form-control form-control-lg fs-6"
+                                                    autocomplete="new-password">
+                                                <button class="btn btn-outline-secondary" type="button"
+                                                    onclick="togglePassVis('custRegPassConfirm', this)" tabindex="-1"
+                                                    aria-label="Şifreyi göster/gizle">
+                                                    <i class="fa-solid fa-eye"></i>
+                                                </button>
+                                            </div>
+                                            <div id="passMatchMsg" class="mt-1" style="font-size:12px;min-height:16px;"></div>
+                                        </div>
+
+                                        <button type="submit" id="custRegSubmitBtn" class="btn btn-primary btn-lg w-100 fs-6 py-3 mt-2">
                                             <i class="fa-solid fa-user-check me-2"></i>Müşteri Hesabı Oluştur
                                         </button>
                                     </form>
+
+                                    <script>
+                                    (function(){
+                                        var pass    = document.getElementById('custRegPass');
+                                        var confirm = document.getElementById('custRegPassConfirm');
+                                        var msg     = document.getElementById('passMatchMsg');
+                                        var btn     = document.getElementById('custRegSubmitBtn');
+
+                                        function checkMatch() {
+                                            if (!confirm.value) { msg.textContent = ''; return; }
+                                            if (pass.value === confirm.value) {
+                                                msg.innerHTML = '<span style="color:#10B981;"><i class="fa-solid fa-circle-check me-1"></i>Şifreler eşleşiyor</span>';
+                                                confirm.style.borderColor = '#10B981';
+                                            } else {
+                                                msg.innerHTML = '<span style="color:#EF4444;"><i class="fa-solid fa-circle-xmark me-1"></i>Şifreler eşleşmiyor</span>';
+                                                confirm.style.borderColor = '#EF4444';
+                                            }
+                                        }
+
+                                        pass.addEventListener('input', checkMatch);
+                                        confirm.addEventListener('input', checkMatch);
+
+                                        document.getElementById('formCustomerRegister').addEventListener('submit', function(e){
+                                            if (pass.value !== confirm.value) {
+                                                e.preventDefault();
+                                                confirm.focus();
+                                                msg.innerHTML = '<span style="color:#EF4444;"><i class="fa-solid fa-circle-xmark me-1"></i>Şifreler eşleşmiyor, kayıt tamamlanamaz!</span>';
+                                            }
+                                        });
+                                    })();
+
+                                    (function initAllCityComboboxes() {
+                                        var cities = [
+                                            "Adana", "Adıyaman", "Afyonkarahisar", "Ağrı", "Aksaray", "Amasya", "Ankara", "Antalya", "Ardahan", "Artvin",
+                                            "Aydın", "Balıkesir", "Bartın", "Batman", "Bayburt", "Bilecik", "Bingöl", "Bitlis", "Bolu", "Burdur",
+                                            "Bursa", "Çanakkale", "Çankırı", "Çorum", "Denizli", "Diyarbakır", "Düzce", "Edirne", "Elazığ", "Erzincan",
+                                            "Erzurum", "Eskişehir", "Gaziantep", "Giresun", "Gümüşhane", "Hakkari", "Hatay", "Iğdır", "Isparta", "İstanbul",
+                                            "İzmir", "Kahramanmaraş", "Karabük", "Karaman", "Kars", "Kastamonu", "Kayseri", "Kırıkkale", "Kırklareli", "Kırşehir",
+                                            "Kilis", "Kocaeli", "Konya", "Kütahya", "Malatya", "Manisa", "Mardin", "Mersin", "Muğla", "Muş",
+                                            "Nevşehir", "Niğde", "Ordu", "Osmaniye", "Rize", "Sakarya", "Samsun", "Siirt", "Sinop", "Sivas",
+                                            "Şanlıurfa", "Şırnak", "Tekirdağ", "Tokat", "Trabzon", "Tunceli", "Uşak", "Van", "Yalova", "Yozgat", "Zonguldak"
+                                        ];
+
+                                        var allDistricts = <?= json_encode($turkeyDistricts, JSON_UNESCAPED_UNICODE) ?>;
+
+                                        function normalizeText(str) {
+                                            return (str || '')
+                                                .toLocaleLowerCase('tr-TR')
+                                                .normalize('NFD')
+                                                .replace(/[\u0300-\u036f]/g, '')
+                                                .replace(/ı/g, 'i')
+                                                .replace(/ğ/g, 'g')
+                                                .replace(/ü/g, 'u')
+                                                .replace(/ş/g, 's')
+                                                .replace(/ö/g, 'o')
+                                                .replace(/ç/g, 'c');
+                                        }
+
+                                        function createCombobox(opts) {
+                                            var input = document.getElementById(opts.inputId);
+                                            var menu = document.getElementById(opts.menuId);
+                                            var wrapper = document.getElementById(opts.wrapperId);
+                                            var toggleBtn = document.getElementById(opts.toggleBtnId);
+
+                                            if (!input || !menu || !wrapper) return;
+
+                                            var activeIndex = -1;
+
+                                            function openMenu() {
+                                                renderList(input.value);
+                                                menu.hidden = false;
+                                                input.setAttribute('aria-expanded', 'true');
+                                                wrapper.classList.add('open');
+                                            }
+
+                                            function closeMenu() {
+                                                menu.hidden = true;
+                                                input.setAttribute('aria-expanded', 'false');
+                                                wrapper.classList.remove('open');
+                                                activeIndex = -1;
+                                            }
+
+                                            function renderList(query) {
+                                                var normalizedQuery = normalizeText(query);
+                                                menu.replaceChildren();
+
+                                                var matches = cities.filter(function(city) {
+                                                    return !normalizedQuery || normalizeText(city).includes(normalizedQuery);
+                                                });
+
+                                                if (matches.length === 0) {
+                                                    var empty = document.createElement('div');
+                                                    empty.className = 'cust-city-empty';
+                                                    empty.innerHTML = '<i class="fa-solid fa-circle-info me-1 text-muted"></i> Listede bulunamadı. Yazdığınız şehir geçerli sayılacaktır.';
+                                                    menu.appendChild(empty);
+                                                    return;
+                                                }
+
+                                                matches.forEach(function(city) {
+                                                    var btn = document.createElement('button');
+                                                    btn.type = 'button';
+                                                    btn.className = 'cust-city-option';
+                                                    btn.setAttribute('role', 'option');
+                                                    btn.innerHTML = '<i class="fa-solid fa-location-dot city-icon"></i><span>' + city + '</span>';
+
+                                                    btn.addEventListener('mousedown', function(e) {
+                                                        e.preventDefault();
+                                                        selectCity(city);
+                                                    });
+
+                                                    menu.appendChild(btn);
+                                                });
+
+                                                activeIndex = -1;
+                                            }
+
+                                            function selectCity(city) {
+                                                input.value = city;
+                                                closeMenu();
+                                                input.dispatchEvent(new Event('input', { bubbles: true }));
+                                                input.dispatchEvent(new Event('change', { bubbles: true }));
+                                                if (typeof opts.onChange === 'function') {
+                                                    opts.onChange(city);
+                                                }
+                                            }
+
+                                            input.addEventListener('focus', openMenu);
+                                            input.addEventListener('input', function() {
+                                                openMenu();
+                                                if (typeof opts.onChange === 'function') {
+                                                    opts.onChange(input.value);
+                                                }
+                                            });
+
+                                            var label = document.getElementById(opts.labelId);
+
+                                            function toggleDropdown(e) {
+                                                if (e) {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                }
+                                                if (menu.hidden) {
+                                                    openMenu();
+                                                } else {
+                                                    closeMenu();
+                                                }
+                                            }
+
+                                            if (toggleBtn) {
+                                                toggleBtn.addEventListener('click', toggleDropdown);
+                                            }
+
+                                            if (label) {
+                                                label.addEventListener('click', toggleDropdown);
+                                            }
+
+                                            input.addEventListener('keydown', function(e) {
+                                                var options = menu.querySelectorAll('.cust-city-option');
+                                                if (menu.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                                                    openMenu();
+                                                    return;
+                                                }
+
+                                                if (e.key === 'ArrowDown') {
+                                                    e.preventDefault();
+                                                    if (options.length > 0) {
+                                                        activeIndex = (activeIndex + 1) % options.length;
+                                                        updateActive(options);
+                                                    }
+                                                } else if (e.key === 'ArrowUp') {
+                                                    e.preventDefault();
+                                                    if (options.length > 0) {
+                                                        activeIndex = (activeIndex - 1 + options.length) % options.length;
+                                                        updateActive(options);
+                                                    }
+                                                } else if (e.key === 'Enter') {
+                                                    if (!menu.hidden && activeIndex >= 0 && options[activeIndex]) {
+                                                        e.preventDefault();
+                                                        options[activeIndex].click();
+                                                    }
+                                                } else if (e.key === 'Escape') {
+                                                    closeMenu();
+                                                } else if (e.key === 'Tab') {
+                                                    closeMenu();
+                                                }
+                                            });
+
+                                            function updateActive(options) {
+                                                options.forEach(function(opt, i) {
+                                                    var isActive = (i === activeIndex);
+                                                    opt.classList.toggle('active', isActive);
+                                                    opt.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                                                    if (isActive) {
+                                                        opt.scrollIntoView({ block: 'nearest' });
+                                                    }
+                                                });
+                                            }
+
+                                            document.addEventListener('pointerdown', function(e) {
+                                                if (!wrapper.contains(e.target)) {
+                                                    closeMenu();
+                                                }
+                                            });
+                                        }
+
+                                        function syncBarberDistricts(cityName) {
+                                            var districtSelect = document.getElementById('barberDistrict');
+                                            if (!districtSelect) return;
+
+                                            districtSelect.innerHTML = '';
+                                            var trimmed = (cityName || '').trim();
+
+                                            if (!trimmed) {
+                                                var defaultOpt = document.createElement('option');
+                                                defaultOpt.value = '';
+                                                defaultOpt.textContent = 'Önce Şehir Seçin';
+                                                districtSelect.appendChild(defaultOpt);
+                                                return;
+                                            }
+
+                                            var normalizedCity = normalizeText(trimmed);
+                                            var districts = null;
+
+                                            if (allDistricts && typeof allDistricts === 'object') {
+                                                for (var key in allDistricts) {
+                                                    if (normalizeText(key) === normalizedCity) {
+                                                        districts = allDistricts[key];
+                                                        break;
+                                                    }
+                                                }
+                                            }
+
+                                            if (!districts && window.businessSearchOptions && window.businessSearchOptions.locations) {
+                                                for (var locKey in window.businessSearchOptions.locations) {
+                                                    if (normalizeText(locKey) === normalizedCity) {
+                                                        districts = window.businessSearchOptions.locations[locKey];
+                                                        break;
+                                                    }
+                                                }
+                                            }
+
+                                            if (!districts && typeof cityDistrictsMap === 'object') {
+                                                districts = cityDistrictsMap[normalizedCity] || cityDistrictsMap[trimmed.toLowerCase()];
+                                            }
+
+                                            if (districts && districts.length > 0) {
+                                                var headOpt = document.createElement('option');
+                                                headOpt.value = '';
+                                                headOpt.textContent = 'İlçe Seçiniz...';
+                                                districtSelect.appendChild(headOpt);
+
+                                                districts.forEach(function(district) {
+                                                    var opt = document.createElement('option');
+                                                    opt.value = district;
+                                                    opt.textContent = district;
+                                                    districtSelect.appendChild(opt);
+                                                });
+                                            } else {
+                                                var opt = document.createElement('option');
+                                                opt.value = 'Merkez';
+                                                opt.textContent = 'Merkez / Diğer';
+                                                districtSelect.appendChild(opt);
+                                            }
+                                        }
+
+                                        function init() {
+                                            createCombobox({
+                                                inputId: 'custRegCity',
+                                                menuId: 'custCityDropdown',
+                                                wrapperId: 'custCityCombobox',
+                                                toggleBtnId: 'custCityToggleBtn',
+                                                labelId: 'custCityLabel'
+                                            });
+
+                                            createCombobox({
+                                                inputId: 'barberCity',
+                                                menuId: 'barberCityDropdown',
+                                                wrapperId: 'barberCityCombobox',
+                                                toggleBtnId: 'barberCityToggleBtn',
+                                                labelId: 'barberCityLabel',
+                                                onChange: syncBarberDistricts
+                                            });
+
+                                            var currentBarberCity = document.getElementById('barberCity');
+                                            if (currentBarberCity && currentBarberCity.value) {
+                                                syncBarberDistricts(currentBarberCity.value);
+                                            }
+                                        }
+
+                                        if (document.readyState === 'loading') {
+                                            document.addEventListener('DOMContentLoaded', init);
+                                        } else {
+                                            init();
+                                        }
+                                    })();
+
+                                    function togglePassVis(inputId, btn) {
+                                        var inp = document.getElementById(inputId);
+                                        var icon = btn.querySelector('i');
+                                        if (inp.type === 'password') {
+                                            inp.type = 'text';
+                                            icon.classList.replace('fa-eye', 'fa-eye-slash');
+                                        } else {
+                                            inp.type = 'password';
+                                            icon.classList.replace('fa-eye-slash', 'fa-eye');
+                                        }
+                                    }
+                                    </script>
                                 </div>
                             </div>
                         </div>
@@ -321,6 +744,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
                                 <div class="tab-pane fade show active" id="barber-login-pane" role="tabpanel">
                                     <form id="formBarberLogin" method="POST" action="login.php" class="auth-form">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                         <input type="hidden" name="action" value="barber_login">
                                         <input type="hidden" name="role" value="barber">
 
@@ -337,8 +761,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                                             <div class="d-flex justify-content-between align-items-center">
                                                 <label for="barberLoginPass"
                                                     class="form-label fw-bold text-xs text-uppercase text-muted">Şifre</label>
-                                                <a href="javascript:void(0)"
-                                                    onclick="alert('Şifre sıfırlama için yöneticinizle iletişime geçin.')"
+                                                <a href="/sifre_sifirla.php"
                                                     class="text-xs fw-bold" style="color: var(--accent);">Şifremi
                                                     Unuttum?</a>
                                             </div>
@@ -353,6 +776,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                                 </div>
                                 <div class="tab-pane fade" id="barber-reg-pane" role="tabpanel">
                                     <form id="formBarberRegister" method="POST" action="login.php" class="auth-form">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                         <input type="hidden" name="action" value="barber_register">
                                         <input type="hidden" name="role" value="barber">
 
@@ -391,22 +815,30 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
                                         <div class="row g-2 mb-3">
                                             <div class="col-md-6">
-                                                <label for="barberCity"
-                                                    class="form-label fw-bold text-xs text-uppercase text-muted">Şehir</label>
-                                                <select id="barberCity" name="sehir" required
-                                                    onchange="updateDistrictOptions(this.value, 'barberDistrict')"
-                                                    class="form-select">
-                                                    <option value="">Şehir Seçin</option>
-                                                    <option value="istanbul">İstanbul</option>
-                                                    <option value="ankara">Ankara</option>
-                                                    <option value="izmir">İzmir</option>
-                                                    <option value="bursa">Bursa</option>
-                                                    <option value="antalya">Antalya</option>
-                                                </select>
+                                                <label id="barberCityLabel"
+                                                    class="form-label fw-bold text-xs text-uppercase text-muted"
+                                                    style="cursor: pointer; user-select: none;">
+                                                    <i class="fa-solid fa-location-dot me-1" style="color:var(--accent);"></i>Şehir</label>
+                                                <div class="cust-city-combobox" id="barberCityCombobox">
+                                                    <input type="text" id="barberCity" name="sehir" required
+                                                        placeholder="Şehir yazın veya seçin..."
+                                                        autocomplete="chrome-off"
+                                                        data-lpignore="true"
+                                                        role="combobox"
+                                                        aria-autocomplete="list"
+                                                        aria-expanded="false"
+                                                        aria-controls="barberCityDropdown"
+                                                        class="form-control pe-5">
+                                                    <button type="button" class="cust-city-toggle" id="barberCityToggleBtn" tabindex="-1" aria-label="Şehir listesini aç veya kapat">
+                                                        <i class="fa-solid fa-chevron-down"></i>
+                                                    </button>
+                                                    <div id="barberCityDropdown" class="cust-city-dropdown" role="listbox" hidden></div>
+                                                </div>
                                             </div>
                                             <div class="col-md-6">
                                                 <label for="barberDistrict"
-                                                    class="form-label fw-bold text-xs text-uppercase text-muted">İlçe</label>
+                                                    class="form-label fw-bold text-xs text-uppercase text-muted">
+                                                    <i class="fa-solid fa-map-pin me-1" style="color:var(--accent);"></i>İlçe</label>
                                                 <select id="barberDistrict" name="ilce" required
                                                     class="form-select">
                                                     <option value="">Önce Şehir Seçin</option>
@@ -426,14 +858,74 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                                             <label for="barberPass"
                                                 class="form-label fw-bold text-xs text-uppercase text-muted">Şifre
                                                 Belirleyin</label>
-                                            <input type="password" id="barberPass" name="sifre" required
-                                                placeholder="••••••••" class="form-control">
+                                            <div class="input-group">
+                                                <input type="password" id="barberPass" name="sifre" required minlength="10" maxlength="72" title="?ifre 10-72 bayt uzunlu?unda olmal?d?r"
+                                                    placeholder="••••••••" class="form-control"
+                                                    autocomplete="new-password">
+                                                <button class="btn btn-outline-secondary" type="button"
+                                                    onclick="togglePassVis('barberPass', this)" tabindex="-1"
+                                                    aria-label="Şifreyi göster/gizle">
+                                                    <i class="fa-solid fa-eye"></i>
+                                                </button>
+                                            </div>
                                         </div>
 
-                                        <button type="submit" class="btn btn-dark btn-lg w-100 fs-6 py-3 mt-2">
+                                        <div class="mb-3">
+                                            <label for="barberPassConfirm"
+                                                class="form-label fw-bold text-xs text-uppercase text-muted">Şifre
+                                                Tekrarı</label>
+                                            <div class="input-group">
+                                                <input type="password" id="barberPassConfirm" name="sifre_tekrar" required
+                                                    placeholder="••••••••" class="form-control"
+                                                    autocomplete="new-password">
+                                                <button class="btn btn-outline-secondary" type="button"
+                                                    onclick="togglePassVis('barberPassConfirm', this)" tabindex="-1"
+                                                    aria-label="Şifreyi göster/gizle">
+                                                    <i class="fa-solid fa-eye"></i>
+                                                </button>
+                                            </div>
+                                            <div id="barberPassMatchMsg" class="mt-1" style="font-size:12px;min-height:16px;"></div>
+                                        </div>
+
+                                        <button type="submit" id="barberRegSubmitBtn" class="btn btn-dark btn-lg w-100 fs-6 py-3 mt-2">
                                             <i class="fa-solid fa-shop me-2"></i>Berber Salonu Hesabı Aç
                                         </button>
                                     </form>
+
+                                    <script>
+                                    (function(){
+                                        var pass    = document.getElementById('barberPass');
+                                        var confirm = document.getElementById('barberPassConfirm');
+                                        var msg     = document.getElementById('barberPassMatchMsg');
+
+                                        if (!pass || !confirm || !msg) return;
+
+                                        function checkMatch() {
+                                            if (!confirm.value) { msg.textContent = ''; return; }
+                                            if (pass.value === confirm.value) {
+                                                msg.innerHTML = '<span style="color:#10B981;"><i class="fa-solid fa-circle-check me-1"></i>Şifreler eşleşiyor</span>';
+                                                confirm.style.borderColor = '#10B981';
+                                            } else {
+                                                msg.innerHTML = '<span style="color:#EF4444;"><i class="fa-solid fa-circle-xmark me-1"></i>Şifreler eşleşmiyor</span>';
+                                                confirm.style.borderColor = '#EF4444';
+                                            }
+                                        }
+
+                                        pass.addEventListener('input', checkMatch);
+                                        confirm.addEventListener('input', checkMatch);
+
+                                        var form = document.getElementById('formBarberRegister');
+                                        if (form) {
+                                            form.addEventListener('submit', function(e){
+                                                if (pass.value !== confirm.value) {
+                                                    e.preventDefault();
+                                                    confirm.focus();
+                                                    msg.innerHTML = '<span style="color:#EF4444;"><i class="fa-solid fa-circle-xmark me-1"></i>Şifreler eşleşmiyor, kayıt tamamlanamaz!</span>';
+                                                }
+                                            });
+                                        }
+                                    })();
+                                    </script>
                                 </div>
                             </div>
                         </div>
