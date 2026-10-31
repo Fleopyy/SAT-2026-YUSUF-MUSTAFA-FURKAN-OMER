@@ -249,7 +249,7 @@ if (!function_exists('getAdminSidebarItems')) {
                 }
 
                                            
-                if (canCurrentUser($item['permission'])) {
+                if (canCurrentUser($item['permission']) || ($item['key'] === 'content' && canCurrentUser('content.view'))) {
                     $items[] = $item;
                 }
             }
@@ -317,7 +317,7 @@ function getAuthenticatedBarber(): ?array {
         return null;
     }
     
-    $stmt = $pdo->prepare("SELECT id, isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce, durum FROM isletmeler WHERE id = ? AND durum = 'active'");
+    $stmt = $pdo->prepare("SELECT id, isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce, mahalle, cadde_sokak, bina_no, daire_no, posta_kodu, tam_adres, aciklama, latitude, longitude, place_id, location_verified_at, durum FROM isletmeler WHERE id = ? AND durum = 'active'");
     $stmt->execute([$_SESSION['barber_id']]);
     $barber = $stmt->fetch(PDO::FETCH_ASSOC);
     
@@ -544,7 +544,6 @@ function getManagerAllowedBusinessIds(int $managerId): ?array {
    
                                                                   
    
-// A scope predicate is independent of the operation permission. null means all; [] means none.
 function currentBusinessScopeSql(string $column, array &$params): string {
     if (isCurrentUserAdmin()) return '1=1';
     if (!isCurrentUserManager()) return '1=0';

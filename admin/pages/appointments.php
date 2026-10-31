@@ -231,7 +231,7 @@ include __DIR__ . '/../includes/header.php';
                                                 <?php endif; ?>
 
                                                 <?php if ($canCancelApt && $apt['durum'] !== 'cancelled'): ?>
-                                                    <button type="submit" name="status" value="cancelled" class="action-btn action-btn-danger" title="İptal Et" onclick="return confirm('Randevuyu iptal etmek istediğinize emin misiniz?');">
+                                                    <button type="submit" name="status" value="cancelled" class="action-btn action-btn-danger" title="İptal Et" onclick="return adminConfirmForm(event, this.form || this, 'Randevuyu iptal etmek istediğinize emin misiniz?');">
                                                         <i class="fa-solid fa-ban"></i>
                                                     </button>
                                                 <?php endif; ?>

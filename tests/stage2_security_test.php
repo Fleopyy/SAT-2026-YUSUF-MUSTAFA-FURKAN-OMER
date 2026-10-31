@@ -1,5 +1,4 @@
 <?php
-// Pure CLI tests: no application database connection, writes or migrations.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -11,12 +10,10 @@ function check(bool $condition, string $name): void {
     $checks++;
     if (!$condition) $failures[] = $name;
 }
-// Replace only the connection include; run the actual bootstrap and helpers with a DB double.
 $source = file_get_contents(__DIR__ . '/../data/security.php');
 $connection = "require_once __DIR__ . '/database.php';";
 check(substr_count($source, $connection) === 1, 'connection isolation');
 $source = str_replace($connection, '', $source);
-// eval() resolves __DIR__ to this test directory; retain the real session bootstrap.
 $source = str_replace("require_once __DIR__ . '/session.php';", 'require_once ' . var_export(dirname(__DIR__) . '/data/session.php', true) . ';', $source);
 ini_set('session.save_path', sys_get_temp_dir());
 class SecurityStatement {

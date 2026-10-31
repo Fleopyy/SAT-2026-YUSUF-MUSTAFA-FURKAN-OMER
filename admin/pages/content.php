@@ -5,13 +5,18 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 
-$admin = requirePermission('settings.view');
+$admin = requireAdminOrManager();
+$canSettings = canCurrentUser('settings.view');
+if (!$canSettings) requirePermission('content.view');
 $currentPage = 'content';
 $pageTitle = 'Site İçeriği & Ayarlar';
 $pageSubtitle = 'Ana sayfa metinlerini, duyuru bandını, iletişim ve SMTP e-posta ayarlarını düzenleyin';
 
                       
-$stmt = $pdo->query("SELECT anahtar, deger, aciklama, tur FROM site_ayarlari");
+$settingsQuery = $canSettings
+    ? "SELECT anahtar, deger, aciklama, tur FROM site_ayarlari WHERE anahtar <> 'smtp_sifre'"
+    : "SELECT anahtar, deger, aciklama, tur FROM site_ayarlari WHERE anahtar IN ('site_baslik','site_aciklama','hero_baslik','hero_aciklama','duyuru_bandi','duyuru_aktif','iletisim_eposta','iletisim_telefon','footer_metin','footer_telif')";
+$stmt = $pdo->query($settingsQuery);
 $settingsRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $settings = [];
 foreach ($settingsRows as $row) {
@@ -26,7 +31,7 @@ include __DIR__ . '/../includes/header.php';
                           
     <div>
         <form method="POST" action="/admin/actions/settings_action.php">
-            <fieldset <?= canCurrentUser('settings.edit') ? '' : 'disabled' ?> style="border:0;padding:0;margin:0;min-width:0;">
+            <fieldset <?= (canCurrentUser('settings.edit') || canCurrentUser('content.edit')) ? '' : 'disabled' ?> style="border:0;padding:0;margin:0;min-width:0;">
             <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
             <input type="hidden" name="action" value="save_settings">
 
@@ -117,6 +122,7 @@ include __DIR__ . '/../includes/header.php';
             </div>
 
                                                         
+            <?php if ($canSettings): ?>
             <div class="admin-panel" id="smtp" style="margin-bottom:24px;">
                 <p role="status">SMTP değişiklikleri ve testleri izinli sunucu / kurum içi ağ politikası tanımlanana kadar beklemede. Mevcut ayarlar korunur; test bağlantısı ve kuyruk kaydı oluşturulmaz.</p>
                 <fieldset disabled style="border:0;padding:0;margin:0;min-width:0;">
@@ -175,6 +181,7 @@ include __DIR__ . '/../includes/header.php';
                 </div>
                 </fieldset>
             </div>
+            <?php endif; ?>
 
             <div style="margin-bottom:40px;">
                 <button type="submit" class="btn btn-primary" style="padding:14px 28px;font-size:15px;">
@@ -187,6 +194,7 @@ include __DIR__ . '/../includes/header.php';
 
                                                                    
     <div>
+        <?php if ($canSettings): ?>
         <div class="admin-panel" style="margin-bottom:24px;">
             <div class="panel-header">
                 <h2>
@@ -244,6 +252,7 @@ include __DIR__ . '/../includes/header.php';
                 </div>
             </div>
         </div>
+        <?php endif; ?>
     </div>
 </div>
 

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../data/privacy.php';
    
                                                
                                                                           
@@ -7,7 +8,6 @@
 require_once __DIR__ . '/includes/auth.php';
 require_once dirname(__DIR__) . '/data/two_factor_service.php';
 
-// Oturum kontrolü
 if (getAuthenticatedAdmin()) {
     header('Location: /admin/dashboard');
     exit;
@@ -24,23 +24,33 @@ if (getAuthenticatedBarber()) {
 $error = '';
 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
-// 2FA İptal
 if (($_GET['step'] ?? '') === 'cancel') {
     unset($_SESSION['2fa_pending']);
     header('Location: /admin/login.php');
     exit;
 }
 
-// 2FA Kodu Yeniden Gönder
-if (($_GET['step'] ?? '') === '2fa' && isset($_GET['resend'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'resend_2fa') {
+    if (!verifyCsrfToken()) { http_response_code(403); exit('CSRF dogrulamasi basarisiz.'); }
     $pending = $_SESSION['2fa_pending'] ?? null;
-    if ($pending && ($pending['expires'] ?? 0) > time()) {
-        if ($pending['type'] === 'admin') {
-            sendAdmin2faEmail((int)$pending['user_id'], $pending['email'], $pending['name']);
+    if ($pending && !empty($pending['user_id']) && ($pending['expires'] ?? 0) > time() && ($pending['attempts'] ?? 0) < 8 && ($pending['resends'] ?? 0) < 3) {
+        $now = time();
+        $lastResend = (int)($pending['last_resend'] ?? (($pending['expires'] ?? 300) - 300));
+        if (($now - $lastResend) < 60) {
+            $_SESSION['2fa_resend_flash'] = 'Lütfen yeni kod istemeden önce 60 saniye bekleyin.';
         } else {
-            sendBarber2faEmail((int)$pending['user_id'], $pending['email'], $pending['name']);
+            $_SESSION['2fa_pending']['last_resend'] = $now;
+            $_SESSION['2fa_pending']['resends'] = (int)($pending['resends'] ?? 0) + 1;
+            if ($pending['type'] === 'admin') {
+                $resendOk = sendAdmin2faEmail((int)$pending['user_id'], $pending['email'], $pending['name']);
+            } else {
+                $resendOk = sendBarber2faEmail((int)$pending['user_id'], $pending['email'], $pending['name']);
+            }
+            if (!$resendOk) { $_SESSION['2fa_resend_flash'] = 'Kod gonderilemedi veya gonderim sinirina ulasildi. Lutfen tekrar deneyin.'; }
+            else $_SESSION['2fa_resend_flash'] = 'Kod gonderim icin kabul edildi; teslimat henuz dogrulanmadi.';
         }
-        $_SESSION['2fa_resend_flash'] = 'Yeni 6 haneli doğrulama kodu e-postanıza iletildi.';
+    } else {
+        $_SESSION['2fa_resend_flash'] = 'Doğrulama oturumu bulunamadı. Lütfen giriş ekranından tekrar deneyin.';
     }
     header('Location: /admin/login.php?step=2fa');
     exit;
@@ -57,13 +67,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $postAction = $_POST['action'] ?? 'login';
 
-        // 2FA KOD DOĞRULAMA ADIMI
         if ($postAction === 'verify_2fa') {
             $pending = $_SESSION['2fa_pending'] ?? null;
-            if (!$pending || ($pending['expires'] ?? 0) < time()) {
+            if (!$pending || ($pending['expires'] ?? 0) < time() || ($pending['attempts'] ?? 0) >= 8) {
                 unset($_SESSION['2fa_pending']);
                 $error = 'Doğrulama süresi doldu. Lütfen tekrar giriş yapın.';
             } else {
+                $challengeTable = $pending['type'] === 'admin' ? 'yoneticiler' : 'isletmeler';
+                $challengeState = $pending['type'] === 'admin' ? 'aktif = 1' : "durum = 'active'";
+                $challengeStmt = $pdo->prepare("SELECT sifre_hash FROM {$challengeTable} WHERE id = ? AND {$challengeState}");
+                $challengeStmt->execute([$pending['user_id']]);
+                $currentHash = $challengeStmt->fetchColumn();
+                if (!is_string($currentHash) || !hash_equals($pending['hash'], $currentHash)) {
+                    unset($_SESSION['2fa_pending']);
+                    header('Location: /admin/login.php');
+                    exit;
+                }
+                $_SESSION['2fa_pending']['attempts'] = (int)($pending['attempts'] ?? 0) + 1;
                 $code = trim($_POST['two_factor_code'] ?? '');
                 if ($pending['type'] === 'admin') {
                     $vRes = verifyAdmin2faCode((int)$pending['user_id'], $code);
@@ -110,6 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         unset($_SESSION['admin_id'], $_SESSION['admin_role'], $_SESSION['admin_name']);
                         unset($_SESSION['manager_id'], $_SESSION['manager_role'], $_SESSION['manager_name']);
 
+                        unset($_SESSION['user_id'], $_SESSION['user_name']);
+                        $_SESSION['user_role'] = 'barber';
                         $_SESSION['barber_id'] = $pending['user_id'];
                         $_SESSION['barber_role'] = 'barber';
                         $_SESSION['barber_name'] = $pending['name'];
@@ -117,7 +139,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         recordLoginAttempt($ip, $pending['email'], true);
 
                         unset($_SESSION['2fa_pending']);
-                        header('Location: /barber/dashboard');
+                        $destination = ($pending['destination'] ?? '') === '/isletme/' ? '/isletme/' : '/barber/dashboard';
+                        header('Location: ' . $destination);
                         exit;
                     } else {
                         $error = $vRes['message'];
@@ -125,7 +148,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } else {
-            // İLK AŞAMA: E-POSTA VE ŞİFRE KONTROLÜ
             $loginInput = trim($_POST['eposta'] ?? '');
             $password = $_POST['sifre'] ?? '';
 
@@ -142,7 +164,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         recordLoginAttempt($ip, $loginInput, false);
                         $error = 'Hesabınız devre dışı bırakılmıştır. Lütfen sistem yöneticisi ile iletişime geçin.';
                     } else {
-                        // Admin için ZORUNLU 2FA Challenge başlatılır
                         $_SESSION['2fa_pending'] = [
                             'type'     => 'admin',
                             'user_id'  => (int)$adminUser['id'],
@@ -153,7 +174,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             'has_totp' => !empty($adminUser['totp_gizli_anahtar']),
                             'expires'  => time() + 300,
                         ];
-                        sendAdmin2faEmail((int)$adminUser['id'], $adminUser['eposta'], $adminUser['ad_soyad']);
+                        $accepted = sendAdmin2faEmail((int)$adminUser['id'], $adminUser['eposta'], $adminUser['ad_soyad']);
+                        $_SESSION['2fa_resend_flash'] = $accepted ? 'Kod gonderim icin kabul edildi; teslimat henuz dogrulanmadi.' : 'Kod gonderilemedi. Yeniden kod isteyebilir veya TOTP/kurtarma kodunuzu kullanabilirsiniz.';
                         recordLoginAttempt($ip, $loginInput, true);
                         header('Location: /admin/login.php?step=2fa');
                         exit;
@@ -170,42 +192,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         } elseif ($barber['durum'] === 'rejected') {
                             recordLoginAttempt($ip, $loginInput, false);
                             $error = 'İşletme başvurunuz onaylanmamıştır.' . (!empty($barber['red_gerekce']) ? ' Gerekçe: ' . e($barber['red_gerekce']) : '');
-                        } elseif ($barber['durum'] === 'suspended') {
+                        } elseif ($barber['durum'] !== 'active') {
                             recordLoginAttempt($ip, $loginInput, false);
                             $error = 'İşletme hesabınız askıya alınmıştır.';
                         } else {
-                            // İşletme için RİSK BAZLI 2FA değerlendirmesi
-                            $risk = evaluateBarberLoginRisk($barber);
-                            if ($risk['requires_2fa']) {
-                                $_SESSION['2fa_pending'] = [
-                                    'type'     => 'barber',
-                                    'user_id'  => (int)$barber['id'],
-                                    'rol'      => 'barber',
-                                    'name'     => $barber['isletme_adi'],
-                                    'email'    => $barber['eposta'],
-                                    'hash'     => $barber['sifre_hash'],
-                                    'reason'   => $risk['reason'],
-                                    'expires'  => time() + 300,
-                                ];
-                                sendBarber2faEmail((int)$barber['id'], $barber['eposta'], $barber['isletme_adi']);
-                                recordLoginAttempt($ip, $loginInput, true);
-                                header('Location: /admin/login.php?step=2fa');
-                                exit;
-                            } else {
-                                // Güvenilir cihaz doğrudan giriş
-                                renewAuthenticatedSession('barber', $barber['sifre_hash']);
-                                unset($_SESSION['admin_id'], $_SESSION['admin_role'], $_SESSION['admin_name']);
-                                unset($_SESSION['manager_id'], $_SESSION['manager_role'], $_SESSION['manager_name']);
-
-                                $_SESSION['barber_id'] = $barber['id'];
-                                $_SESSION['barber_role'] = 'barber';
-                                $_SESSION['barber_name'] = $barber['isletme_adi'];
-                                $pdo->prepare("UPDATE isletmeler SET son_giris = NOW() WHERE id = ?")->execute([$barber['id']]);
-                                recordLoginAttempt($ip, $loginInput, true);
-
-                                header('Location: /barber/dashboard');
-                                exit;
-                            }
+                            completeBarberPasswordLogin($barber, $loginInput, '/barber/dashboard');
                         }
                     } else {
                         recordLoginAttempt($ip, $loginInput, false);
@@ -244,7 +235,6 @@ $csrfToken = generateCsrfToken();
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
             background: linear-gradient(135deg, #0B0F19 0%, #111827 50%, #0F172A 100%);
@@ -490,9 +480,9 @@ $csrfToken = generateCsrfToken();
                 <h3>Kimliğinizi Doğrulayın</h3>
                 <p style="font-size:13px;line-height:1.5;margin-top:6px;">
                     <?php if ($pending['type'] === 'admin'): ?>
-                        <strong><?= e($pending['name']) ?></strong>, hesabınızın güvenliği için <strong><?= e($pending['email']) ?></strong> adresinize gönderilen 6 haneli kodu<?= !empty($pending['has_totp']) ? ' veya Authenticator TOTP kodunuzu' : '' ?> girin.
+                        <strong><?= e($pending['name']) ?></strong>, hesabınızın güvenliği için <strong><?= e($pending['email']) ?></strong> adresiniz için talep edilen 6 haneli kodu<?= !empty($pending['has_totp']) ? ' veya Authenticator TOTP kodunuzu' : '' ?> girin.
                     <?php else: ?>
-                        İşletmeniz için ek güvenlik doğrulaması gerekiyor (<?= e($pending['reason'] ?? 'Yeni cihaz') ?>). <strong><?= e($pending['email']) ?></strong> adresinize gönderilen 6 haneli kodu girin.
+                        İşletmeniz için ek güvenlik doğrulaması gerekiyor (<?= e($pending['reason'] ?? 'Yeni cihaz') ?>). <strong><?= e($pending['email']) ?></strong> adresiniz için talep edilen 6 haneli kodu girin.
                     <?php endif; ?>
                 </p>
             </div>
@@ -519,7 +509,7 @@ $csrfToken = generateCsrfToken();
                     <label class="form-label">6 Haneli Doğrulama Kodu / Kurtarma Kodu</label>
                     <div class="input-wrap">
                         <i class="fa-solid fa-key input-icon"></i>
-                        <input type="text" name="two_factor_code" required autofocus class="form-input" placeholder="••••••" style="letter-spacing:6px;font-size:22px;text-align:center;font-weight:700;">
+                        <input type="text" id="twoFactorCodeInput" name="two_factor_code" required autofocus autocomplete="one-time-code" inputmode="numeric" maxlength="9" class="form-input" placeholder="••••••" style="letter-spacing:6px;font-size:22px;text-align:center;font-weight:700;">
                     </div>
                     <div style="font-size:11px;color:#94A3B8;margin-top:6px;">
                         Kodunuz 5 dakika boyunca geçerlidir.
@@ -533,9 +523,11 @@ $csrfToken = generateCsrfToken();
             </form>
 
             <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px;font-size:12px;">
-                <a href="/admin/login.php?step=2fa&resend=1" style="color:#E5A955;text-decoration:none;font-weight:600;">
+                <form method="POST" action="/admin/login.php?step=2fa">
+                    <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                    <button type="submit" name="action" value="resend_2fa" style="color:#E5A955;background:none;border:0;cursor:pointer;font-weight:600;">
                     <i class="fa-solid fa-rotate-right me-1"></i> Yeni Kod Gönder
-                </a>
+                </button></form>
                 <a href="/admin/login.php?step=cancel" style="color:#94A3B8;text-decoration:none;">
                     <i class="fa-solid fa-arrow-left me-1"></i> Giriş Ekranına Dön
                 </a>
@@ -592,5 +584,21 @@ $csrfToken = generateCsrfToken();
     </div>
 </div>
 
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var input = document.getElementById('twoFactorCodeInput');
+    if (input) {
+        input.addEventListener('input', function() {
+            this.value = this.value.replace(/\s+/g, '');
+        });
+        input.addEventListener('paste', function(e) {
+            setTimeout(function() {
+                input.value = input.value.replace(/\s+/g, '');
+            }, 10);
+        });
+    }
+
+});
+</script>
 </body>
 </html>

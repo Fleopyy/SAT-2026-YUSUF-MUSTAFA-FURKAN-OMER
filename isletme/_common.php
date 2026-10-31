@@ -21,7 +21,9 @@ function businessFlash(string $type, string $message): void {
 
 function businessRedirect(string $page): void {
     header('Location: /isletme/' . $page);
-    exit;
+    if (PHP_SAPI !== 'cli') {
+        exit;
+    }
 }
 
 function businessRequirePost(): void {

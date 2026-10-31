@@ -1,5 +1,4 @@
 <?php
-// Maintenance and test tools must never run through HTTP.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -61,7 +60,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
             font-family: 'Plus Jakarta Sans', sans-serif;
             background: linear-gradient(135deg, #0F172A 0%, #1E293B 50%, #0F172A 100%);

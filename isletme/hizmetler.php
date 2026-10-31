@@ -144,7 +144,7 @@ include __DIR__ . '/_header.php';
                         <?php foreach ($employees as $employee): ?><label style="display:flex;gap:8px;align-items:center;margin:6px 0;"><input type="checkbox" name="employee_ids[]" value="<?= (int)$employee['id'] ?>" <?= in_array((int)$employee['id'], $assigned[(int)$service['id']] ?? [], true) ? 'checked' : '' ?>><?= businessEscape($employee['ad_soyad']) ?></label><?php endforeach; ?>
                         <button class="btn-admin primary sm" type="submit">Kaydet</button>
                     </form></details>
-                    <form method="POST" class="business-inline-form" onsubmit="return confirm('Hizmet durumunu değiştirmek istiyor musunuz?')">
+                    <form method="POST" class="business-inline-form" onsubmit="return adminConfirmForm(event, this, 'Hizmet durumunu değiştirmek istiyor musunuz?');">
                         <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="toggle"><input type="hidden" name="service_id" value="<?= (int)$service['id'] ?>"><input type="hidden" name="active" value="<?= $service['aktif_mi'] ? 0 : 1 ?>">
                         <button class="btn-admin <?= $service['aktif_mi'] ? 'danger' : 'success' ?> sm"><?= $service['aktif_mi'] ? 'Pasife al' : 'Aktifleştir' ?></button>
                     </form></td>

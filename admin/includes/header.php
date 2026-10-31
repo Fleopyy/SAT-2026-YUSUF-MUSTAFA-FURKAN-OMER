@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../../data/privacy.php';
    
                                                  
    
@@ -15,11 +16,12 @@ $unreadCount = 0;
 $latestNotifications = [];
 try {
     $currentUserId = (int)($admin['id'] ?? 0);
-    $stmt = $pdo->prepare("SELECT COUNT(*) FROM bildirimler WHERE okundu = 0 AND (hedef_yonetici_id IS NULL OR hedef_yonetici_id = ?)");
+    $notificationScope = $adminRole === 'admin' ? '(hedef_yonetici_id IS NULL OR hedef_yonetici_id = ?)' : 'hedef_yonetici_id = ?';
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM bildirimler WHERE okundu = 0 AND {$notificationScope}");
     $stmt->execute([$currentUserId]);
     $unreadCount = (int)$stmt->fetchColumn();
 
-    $stmt = $pdo->prepare("SELECT * FROM bildirimler WHERE (hedef_yonetici_id IS NULL OR hedef_yonetici_id = ?) ORDER BY olusturulma_tarihi DESC LIMIT 5");
+    $stmt = $pdo->prepare("SELECT * FROM bildirimler WHERE {$notificationScope} ORDER BY olusturulma_tarihi DESC LIMIT 5");
     $stmt->execute([$currentUserId]);
     $latestNotifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {

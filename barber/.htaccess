@@ -1,6 +1,3 @@
-# ============================================================
-# BiTıraş.com — Berber Panel Güvenlik ve URL Yönlendirmeleri
-# ============================================================
 
 Options -Indexes +FollowSymLinks
 RewriteEngine On

@@ -1,7 +1,4 @@
 <?php
-// BİTİRAS — Gmail SMTP, Doğrulama & Otomatik E-Posta Sistemi Veritabanı Güncellemesi (Migration)
-// GÜVENLİK NOTU: Bu dosya yalnızca CLI üzerinden ve yetkili kullanıcı izniyle çalıştırılabilir.
-// Kullanıcı onayı alınmadan otomatik çalıştırılmaz.
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -38,7 +35,6 @@ echo "=================================================================\n";
 echo " BİTİRAS — E-Posta ve Hesap Güvenliği Veritabanı Migration\n";
 echo "=================================================================\n\n";
 
-// 1. E-POSTA KUYRUĞU İYİLEŞTİRMELERİ (İdempotency ve Tür Ayrımı)
 if (!columnExists($pdo, 'eposta_kuyrugu', 'idempotency_key')) {
     runMigrationStep($pdo,
         "ALTER TABLE `eposta_kuyrugu` ADD COLUMN `idempotency_key` VARCHAR(100) NULL AFTER `durum`, ADD UNIQUE KEY `uk_idempotency` (`idempotency_key`)",
@@ -59,7 +55,6 @@ if (!columnExists($pdo, 'eposta_kuyrugu', 'tur')) {
     $success[] = "eposta_kuyrugu.tur zaten mevcut, atlandı.";
 }
 
-// 2. MÜŞTERİ HESAPLARI GÜVENLİĞİ (E-posta doğrulama, Şifre sıfırlama, E-posta değişikliği)
 $userCols = [
     ['eposta_dogrulandi', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `sifre_hash`'],
     ['eposta_dogrulama_kodu_hash', 'VARCHAR(255) NULL AFTER `eposta_dogrulandi`'],
@@ -86,7 +81,6 @@ foreach ($userCols as [$col, $def]) {
     }
 }
 
-// 3. ADMİN VE YÖNETİCİ HESAPLARI GÜVENLİĞİ (2FA TOTP ve E-posta Doğrulama)
 $adminCols = [
     ['iki_adimli_tur', "ENUM('none','totp','email') NOT NULL DEFAULT 'none' AFTER `aktif`"],
     ['totp_gizli_anahtar', 'VARCHAR(255) NULL AFTER `iki_adimli_tur`'],
@@ -108,7 +102,6 @@ foreach ($adminCols as [$col, $def]) {
     }
 }
 
-// 4. İŞLETME HESAPLARI (Son giriş takibi ve risk bazlı doğrulama)
 $barberCols = [
     ['son_giris', 'DATETIME NULL AFTER `durum`'],
     ['eposta_2fa_kod_hash', 'VARCHAR(255) NULL AFTER `son_giris`'],
@@ -128,7 +121,6 @@ foreach ($barberCols as [$col, $def]) {
     }
 }
 
-// 5. GÜVENİLİR CİHAZLAR TABLOSU (Admin, İşletme ve Müşteri için cihaz tanıma)
 if (!tableExists($pdo, 'guvenilir_cihazlar')) {
     $createDevicesSql = "CREATE TABLE `guvenilir_cihazlar` (
         `id` INT(11) NOT NULL AUTO_INCREMENT,
@@ -151,7 +143,6 @@ if (!tableExists($pdo, 'guvenilir_cihazlar')) {
     $success[] = "guvenilir_cihazlar tablosu zaten mevcut, atlandı.";
 }
 
-// 6. RANDEVU BİLDİRİM VE HATIRLATMA KAYITLARI TABLOSU (Tekilleştirme ve Gönderim Takibi)
 if (!tableExists($pdo, 'randevu_bildirim_kayitlari')) {
     $createNotifLogSql = "CREATE TABLE `randevu_bildirim_kayitlari` (
         `id` INT(11) NOT NULL AUTO_INCREMENT,

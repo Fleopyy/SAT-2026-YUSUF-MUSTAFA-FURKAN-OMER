@@ -213,7 +213,7 @@ include __DIR__ . '/../includes/header.php';
                                        
             <div style="display:flex;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid #E2E8F0;flex-wrap:wrap;align-items:center;">
                 <?php if (in_array($detailApp['durum'], ['pending', 'rejected'], true) && canCurrentUser('businesses.approve')): ?>
-                    <form method="POST" action="/admin/actions/application_action.php" onsubmit="return confirm('Bu işletmeyi onaylamak ve yayına almak istediğinize emin misiniz?');">
+                    <form method="POST" action="/admin/actions/application_action.php" onsubmit="return adminConfirmForm(event, this, 'Bu işletmeyi onaylamak ve yayına almak istediğinize emin misiniz?');">
                         <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                         <input type="hidden" name="action" value="approve">
                         <input type="hidden" name="business_id" value="<?= $detailApp['id'] ?>">
@@ -231,7 +231,7 @@ include __DIR__ . '/../includes/header.php';
                 <?php endif; ?>
 
                 <?php if ($detailApp['durum'] === 'active' && canCurrentUser('businesses.suspend')): ?>
-                    <form method="POST" action="/admin/actions/application_action.php" onsubmit="return confirm('İşletmeyi askıya almak istediğinize emin misiniz? Müşteriler randevu alamayacak.');">
+                    <form method="POST" action="/admin/actions/application_action.php" onsubmit="return adminConfirmForm(event, this, 'İşletmeyi askıya almak istediğinize emin misiniz? Müşteriler randevu alamayacak.');">
                         <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                         <input type="hidden" name="action" value="suspend">
                         <input type="hidden" name="business_id" value="<?= $detailApp['id'] ?>">

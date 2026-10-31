@@ -1,13 +1,8 @@
 <?php
-// BİTİRAS — İki Aşamalı Doğrulama (2FA) ve Risk Bazlı Cihaz Tanıma Servisi
-// TOTP (RFC 6238), E-Posta OTP, Kurtarma Kodları ve Güvenilir Cihaz Yönetimi
 
 require_once __DIR__ . '/security.php';
 require_once __DIR__ . '/mail_service.php';
 
-// =========================================================================
-// 1. TOTP (RFC 6238) - Pure PHP Time-Based One-Time Password Implementation
-// =========================================================================
 
 function generateTotpSecret(int $byteCount = 16): string {
     $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -105,20 +100,19 @@ function verifyAndConsumeRecoveryCode(PDO $pdo, int $adminId, string $inputCode)
     if ($foundIndex >= 0) {
         unset($hashes[$foundIndex]);
         $newJson = json_encode(array_values($hashes));
-        $pdo->prepare("UPDATE yoneticiler SET kurtarma_kodlari_hash = ? WHERE id = ?")
-            ->execute([$newJson, $adminId]);
-        return true;
+        $consume = $pdo->prepare("UPDATE yoneticiler SET kurtarma_kodlari_hash = ? WHERE id = ? AND kurtarma_kodlari_hash = ?");
+        $consume->execute([$newJson, $adminId, $raw]);
+        return $consume->rowCount() === 1;
     }
     return false;
 }
 
-// =========================================================================
-// 2. E-Posta 2FA Kodları (Admin & İşletme)
-// =========================================================================
 
 function sendAdmin2faEmail(int $adminId, string $email, string $fullName): bool {
+    try {
     global $pdo;
 
+    if (!consumeMailRequestLimit('mfa_send', (string)$adminId)) return false;
     $code = (string)random_int(100000, 999999);
     $codeHash = hash('sha256', $code);
 
@@ -156,18 +150,25 @@ function sendAdmin2faEmail(int $adminId, string $email, string $fullName): bool 
         'Bu giriş girişimini siz yapmadıysanız lütfen derhal sistem yöneticisi ile iletişime geçin ve parolanızı değiştirin.'
     );
 
-    $res = sendMailDirect($email, $fullName, 'BİTİRAS — Yönetici 2FA Giriş Kodu', $html);
-    if (!$res['success']) {
-        enqueueMail($email, $fullName, 'BİTİRAS — Yönetici 2FA Giriş Kodu', $html, 'admin_2fa_' . $adminId . '_' . time(), 'admin_2fa');
+    $subject = 'BİTİRAS — Yönetici 2FA Giriş Kodu [' . date('H:i') . ']';
+    $mailAccepted = dispatchAccountMail($email, $fullName, $subject, $html, 'admin_2fa_' . $adminId . '_' . time(), 'admin_2fa');
+    return $mailAccepted;
+    } catch (Throwable $e) {
+        error_log('Account mail preparation unavailable.');
+        return false;
     }
-    return true;
 }
 
 function verifyAdmin2faCode(int $adminId, string $inputCode): array {
     global $pdo;
+    $attempt = $pdo->prepare("UPDATE yoneticiler SET eposta_2fa_deneme = eposta_2fa_deneme + 1 WHERE id = ? AND eposta_2fa_deneme < 8");
+    $attempt->execute([$adminId]);
+    if ($attempt->rowCount() !== 1) return ['success'=>false, 'message'=>'Deneme siniri asildi.'];
 
-    $inputCode = trim($inputCode);
-    if (empty($inputCode)) {
+
+    $raw = trim($inputCode);
+    $cleanNumeric = preg_replace('/\D/', '', $raw);
+    if (empty($raw)) {
         return ['success' => false, 'message' => 'Lütfen doğrulama kodunu girin.'];
     }
 
@@ -180,45 +181,63 @@ function verifyAdmin2faCode(int $adminId, string $inputCode): array {
         return ['success' => false, 'message' => 'Yönetici hesabı bulunamadı.'];
     }
 
-    if ((int)$admin['eposta_2fa_deneme'] >= 5) {
+    if ((int)$admin['eposta_2fa_deneme'] > 8) {
         return ['success' => false, 'message' => 'Çok fazla hatalı deneme yapıldı. Güvenliğiniz için lütfen yeniden giriş yapın.'];
     }
 
-    // 1. Try TOTP Code if secret exists
-    if (!empty($admin['totp_gizli_anahtar']) && verifyTotpCode($admin['totp_gizli_anahtar'], $inputCode)) {
-        $pdo->prepare("UPDATE yoneticiler SET eposta_2fa_kod_hash = NULL, eposta_2fa_son_tarih = NULL, eposta_2fa_deneme = 0 WHERE id = ?")
-            ->execute([$adminId]);
-        return ['success' => true, 'message' => 'TOTP doğrulaması başarılı.'];
-    }
+    $candidates = array_unique(array_filter([$cleanNumeric, $raw, strtoupper($raw)]));
 
-    // 2. Try Recovery Code
-    if (str_contains($inputCode, '-') && verifyAndConsumeRecoveryCode($pdo, $adminId, $inputCode)) {
-        return ['success' => true, 'message' => 'Kurtarma kodu ile giriş başarılı. Lütfen yeni kurtarma kodları oluşturun.'];
-    }
-
-    // 3. Try Email 2FA Code
-    if (!empty($admin['eposta_2fa_kod_hash']) && !empty($admin['eposta_2fa_son_tarih'])) {
-        if (strtotime($admin['eposta_2fa_son_tarih']) >= time()) {
-            if (hash_equals($admin['eposta_2fa_kod_hash'], hash('sha256', $inputCode))) {
-                $pdo->prepare("UPDATE yoneticiler SET eposta_2fa_kod_hash = NULL, eposta_2fa_son_tarih = NULL, eposta_2fa_deneme = 0 WHERE id = ?")
-                    ->execute([$adminId]);
-                return ['success' => true, 'message' => 'E-posta doğrulaması başarılı.'];
+    if (!empty($admin['totp_gizli_anahtar'])) {
+        foreach ($candidates as $cand) {
+            $slice = matchingTotpTimeSlice($admin['totp_gizli_anahtar'], $cand);
+            if ($slice !== null) {
+                if (!consumeAdminTotpSlice($pdo, $adminId, $admin['totp_gizli_anahtar'], $slice)) {
+                    return ['success'=>false, 'message'=>'Kod kullanilmis veya dogrulama kullanilamiyor.'];
+                }
+                return ['success'=>true, 'message'=>'TOTP dogrulamasi basarili.'];
             }
-        } else {
-            return ['success' => false, 'message' => 'E-posta doğrulama kodunun 5 dakikalık süresi dolmuş.'];
         }
     }
 
-    // Increment attempts
-    $pdo->prepare("UPDATE yoneticiler SET eposta_2fa_deneme = eposta_2fa_deneme + 1 WHERE id = ?")
-        ->execute([$adminId]);
+    foreach ($candidates as $cand) {
+        if (str_contains($cand, '-') && verifyAndConsumeRecoveryCode($pdo, $adminId, $cand)) {
+            return ['success' => true, 'message' => 'Kurtarma kodu ile giriş başarılı. Lütfen yeni kurtarma kodları oluşturun.'];
+        }
+    }
+
+    $now = time();
+    $matched = false;
+
+    if (!empty($admin['eposta_2fa_kod_hash']) && !empty($admin['eposta_2fa_son_tarih'])) {
+        $expiryTime = strtotime($admin['eposta_2fa_son_tarih']);
+        if ($expiryTime >= $now) {
+            foreach ($candidates as $cand) {
+                if (hash_equals($admin['eposta_2fa_kod_hash'], hash('sha256', $cand))) {
+                    $matched = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if ($matched) {
+        $consume = $pdo->prepare("UPDATE yoneticiler SET eposta_2fa_kod_hash = NULL, eposta_2fa_son_tarih = NULL, eposta_2fa_deneme = 0 WHERE id = ? AND eposta_2fa_kod_hash = ? AND eposta_2fa_son_tarih > NOW() AND eposta_2fa_deneme <= 8");
+        $consume->execute([$adminId, $admin['eposta_2fa_kod_hash']]);
+        if ($consume->rowCount() !== 1) return ['success'=>false, 'message'=>'Kod kullanilmis veya gecersiz.'];
+        if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['2fa_pending']['valid_hashes'])) {
+            unset($_SESSION['2fa_pending']['valid_hashes']);
+        }
+        return ['success' => true, 'message' => 'E-posta doğrulaması başarılı.'];
+    }
 
     return ['success' => false, 'message' => 'Girdiğiniz doğrulama kodu hatalı. Lütfen tekrar deneyin.'];
 }
 
 function sendBarber2faEmail(int $barberId, string $email, string $shopName): bool {
+    try {
     global $pdo;
 
+    if (!consumeMailRequestLimit('barber_mfa_send', (string)$barberId)) return false;
     $code = (string)random_int(100000, 999999);
     $codeHash = hash('sha256', $code);
 
@@ -256,15 +275,20 @@ function sendBarber2faEmail(int $barberId, string $email, string $shopName): boo
         'Bu girişi siz başlatmadıysanız şifrenizi derhal yenileyin.'
     );
 
-    $res = sendMailDirect($email, $shopName, 'BİTİRAS — İşletme Girişi Doğrulama Kodu', $html);
-    if (!$res['success']) {
-        enqueueMail($email, $shopName, 'BİTİRAS — İşletme Girişi Doğrulama Kodu', $html, 'barber_2fa_' . $barberId . '_' . time(), 'isletme_2fa');
+    $mailAccepted = dispatchAccountMail($email, $shopName, 'BİTİRAS — İşletme Girişi Doğrulama Kodu', $html, 'barber_2fa_' . $barberId . '_' . time(), 'isletme_2fa');
+    return $mailAccepted;
+    } catch (Throwable $e) {
+        error_log('Account mail preparation unavailable.');
+        return false;
     }
-    return true;
 }
 
 function verifyBarber2faCode(int $barberId, string $inputCode): array {
     global $pdo;
+    $attempt = $pdo->prepare("UPDATE isletmeler SET eposta_2fa_deneme = eposta_2fa_deneme + 1 WHERE id = ? AND eposta_2fa_deneme < 5");
+    $attempt->execute([$barberId]);
+    if ($attempt->rowCount() !== 1) return ['success'=>false, 'message'=>'Deneme siniri asildi.'];
+
 
     $inputCode = trim($inputCode);
     if (strlen($inputCode) !== 6 || !ctype_digit($inputCode)) {
@@ -280,7 +304,7 @@ function verifyBarber2faCode(int $barberId, string $inputCode): array {
         return ['success' => false, 'message' => 'İşletme hesabı bulunamadı.'];
     }
 
-    if ((int)$barber['eposta_2fa_deneme'] >= 5) {
+    if ((int)$barber['eposta_2fa_deneme'] > 5) {
         return ['success' => false, 'message' => 'Çok fazla hatalı deneme yapıldı. Lütfen tekrar giriş yapın.'];
     }
 
@@ -293,25 +317,22 @@ function verifyBarber2faCode(int $barberId, string $inputCode): array {
     }
 
     if (hash_equals($barber['eposta_2fa_kod_hash'], hash('sha256', $inputCode))) {
-        $pdo->prepare("UPDATE isletmeler 
+        $consume = $pdo->prepare("UPDATE isletmeler 
                       SET eposta_2fa_kod_hash = NULL,
                           eposta_2fa_son_tarih = NULL,
                           eposta_2fa_deneme = 0,
                           son_giris = NOW()
-                      WHERE id = ?")
-            ->execute([$barberId]);
+                      WHERE id = ? AND eposta_2fa_kod_hash = ? AND eposta_2fa_son_tarih > NOW() AND eposta_2fa_deneme <= 5");
+        $consume->execute([$barberId, $barber['eposta_2fa_kod_hash']]);
+        if ($consume->rowCount() !== 1) return ['success'=>false, 'message'=>'Kod kullanilmis veya gecersiz.'];
         return ['success' => true, 'message' => 'Doğrulama başarılı.'];
     }
 
-    $pdo->prepare("UPDATE isletmeler SET eposta_2fa_deneme = eposta_2fa_deneme + 1 WHERE id = ?")
-        ->execute([$barberId]);
+
 
     return ['success' => false, 'message' => 'Girdiğiniz doğrulama kodu hatalı.'];
 }
 
-// =========================================================================
-// 3. Risk Bazlı Cihaz Tanıma & Güvenilir Cihazlar (guvenilir_cihazlar)
-// =========================================================================
 
 function getDeviceCookieName(): string {
     return 'bitiras_device_token';
@@ -378,12 +399,6 @@ function registerTrustedDevice(string $userType, int $userId, int $validDays = 3
     return $token;
 }
 
-/**
- * Risk-based analysis for Barber Login.
- * Conditions requiring 2FA:
- * 1. Untrusted or new device (cookie token not recognized in guvenilir_cihazlar)
- * 2. Inactive account (no login in the last 14 days)
- */
 function evaluateBarberLoginRisk(array $barber): array {
     $barberId = (int)$barber['id'];
     $trusted = isTrustedDevice('isletme', $barberId);
@@ -417,6 +432,7 @@ function evaluateBarberLoginRisk(array $barber): array {
 }
 
 function sendLoginSecurityAlert(string $userType, int $userId, string $email, string $fullName): void {
+    try {
     $now = date('d.m.Y H:i');
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'Belirtilmedi';
     $ua = mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? 'Belirtilmedi'), 0, 150);
@@ -442,8 +458,72 @@ function sendLoginSecurityAlert(string $userType, int $userId, string $email, st
         'Bu işlemi siz gerçekleştirmediyseniz, hesabınız ele geçirilmiş olabilir. Lütfen derhal şifrenizi yenileyin ve destek ekibimizle iletişime geçin.'
     );
 
-    $res = sendMailDirect($email, $fullName, 'BİTİRAS — Yeni Cihazdan Giriş Bildirimi', $html);
-    if (!$res['success']) {
-        enqueueMail($email, $fullName, 'BİTİRAS — Yeni Cihazdan Giriş Bildirimi', $html, 'new_dev_' . $userType . '_' . $userId . '_' . time(), 'guvenlik_uyari');
+    $mailAccepted = dispatchAccountMail($email, $fullName, 'BİTİRAS — Yeni Cihazdan Giriş Bildirimi', $html, 'new_dev_' . $userType . '_' . $userId . '_' . time(), 'guvenlik_uyari');
+    } catch (Throwable $e) {
+        error_log('Account mail preparation unavailable.');
+        return;
+    }
+}
+
+function completeBarberPasswordLogin(array $barber, string $loginInput, string $destination): void {
+    global $pdo;
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    if (!in_array($destination, ['/isletme/', '/barber/dashboard'], true)) {
+        throw new RuntimeException('Invalid login destination.');
+    }
+    $risk = evaluateBarberLoginRisk($barber);
+    if ($risk['requires_2fa']) {
+        unset($_SESSION['barber_id'], $_SESSION['barber_role'], $_SESSION['barber_name'], $_SESSION['admin_id'], $_SESSION['admin_role'], $_SESSION['admin_name'], $_SESSION['manager_id'], $_SESSION['manager_role'], $_SESSION['manager_name'], $_SESSION['user_id'], $_SESSION['user_role'], $_SESSION['user_name']);
+        $_SESSION['2fa_pending'] = [
+            'type'     => 'barber',
+            'user_id'  => (int)$barber['id'],
+            'rol'      => 'barber',
+            'name'     => $barber['isletme_adi'],
+            'email'    => $barber['eposta'],
+            'hash'     => $barber['sifre_hash'],
+            'reason'   => $risk['reason'],
+            'expires'  => time() + 300,
+            'destination' => $destination,
+        ];
+        $mailAccepted = sendBarber2faEmail((int)$barber['id'], $barber['eposta'], $barber['isletme_adi']);
+        $_SESSION['2fa_resend_flash'] = $mailAccepted ? 'Kod gonderim icin kabul edildi; teslimat henuz dogrulanmadi.' : 'Kod gonderilemedi. Lutfen yeniden kod isteyin.';
+        recordLoginAttempt($ip, $loginInput, true);
+        header('Location: /isletme/giris.php?step=2fa');
+        exit;
+    } else {
+        renewAuthenticatedSession('barber', $barber['sifre_hash']);
+        unset($_SESSION['admin_id'], $_SESSION['admin_role'], $_SESSION['admin_name']);
+        unset($_SESSION['manager_id'], $_SESSION['manager_role'], $_SESSION['manager_name']);
+    
+        unset($_SESSION['user_id'], $_SESSION['user_name'], $_SESSION['2fa_pending']);
+        $_SESSION['user_role'] = 'barber';
+        $_SESSION['barber_id'] = $barber['id'];
+        $_SESSION['barber_role'] = 'barber';
+        $_SESSION['barber_name'] = $barber['isletme_adi'];
+        $pdo->prepare("UPDATE isletmeler SET son_giris = NOW() WHERE id = ?")->execute([$barber['id']]);
+        recordLoginAttempt($ip, $loginInput, true);
+    
+        header('Location: ' . $destination);
+        exit;
+    }
+}
+
+function matchingTotpTimeSlice(string $secret, string $code, ?int $now = null): ?int {
+    if (strlen($code) !== 6 || !ctype_digit($code)) return null;
+    $current = (int)floor(($now ?? time()) / 30);
+    for ($slice = $current + 1; $slice >= $current - 1; $slice--) {
+        if (hash_equals(calculateTotpCode($secret, $slice), $code)) return $slice;
+    }
+    return null;
+}
+
+function consumeAdminTotpSlice($pdo, int $adminId, string $secret, int $slice): bool {
+    try {
+        $stmt = $pdo->prepare("UPDATE yoneticiler SET son_totp_zaman_dilimi = ?, eposta_2fa_kod_hash = NULL, eposta_2fa_son_tarih = NULL, eposta_2fa_deneme = 0 WHERE id = ? AND totp_gizli_anahtar = ? AND (son_totp_zaman_dilimi IS NULL OR son_totp_zaman_dilimi < ?)");
+        $stmt->execute([$slice, $adminId, $secret, $slice]);
+        return $stmt->rowCount() === 1;
+    } catch (Throwable $e) {
+        error_log('TOTP consumption unavailable.');
+        return false;
     }
 }

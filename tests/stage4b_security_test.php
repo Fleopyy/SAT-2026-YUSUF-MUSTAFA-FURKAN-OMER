@@ -1,5 +1,4 @@
 <?php
-// CLI only. No application bootstrap, database or live media access.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../data/image_upload.php';
 $n = 0;
@@ -47,7 +46,6 @@ try {
 if (!function_exists('imagecreatefromstring')) {
     echo "SKIP GD metadata round trip: GD disabled.\n";
 } else {
-    // JPEG APP1 EXIF plus an appended payload must not survive the existing GD round trip.
     $im = imagecreatetruecolor(2,2);
     ob_start(); imagejpeg($im, null, 90); $jpeg = ob_get_clean(); imagedestroy($im);
     $marker = "Exif\0\0STAGE4B_PRIVATE_GPS";

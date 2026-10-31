@@ -343,7 +343,7 @@ include __DIR__ . '/_header.php';
                                 </td>
                                 <td><?= businessEscape($special['not_metni'] ?: '—') ?></td>
                                 <td>
-                                    <form method="POST" onsubmit="return confirm('Özel gün kaydı silinsin mi?')" style="margin:0;">
+                                    <form method="POST" onsubmit="return adminConfirmForm(event, this, 'Özel gün kaydı silinsin mi?');" style="margin:0;">
                                         <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>">
                                         <input type="hidden" name="action" value="delete_special">
                                         <input type="hidden" name="special_id" value="<?= (int)$special['id'] ?>">
@@ -431,7 +431,7 @@ include __DIR__ . '/_header.php';
                                 <td><span class="status-badge <?= $leave['baslangic'] ? 'pending' : 'suspended' ?>"><?= $leave['baslangic'] ? businessEscape(substr($leave['baslangic'], 0, 5) . ' – ' . substr($leave['bitis'], 0, 5)) : 'Tam gün' ?></span></td>
                                 <td><?= businessEscape($leave['neden'] ?: '—') ?></td>
                                 <td>
-                                    <form method="POST" onsubmit="return confirm('İzin kaydı silinsin mi?')" style="margin:0;">
+                                    <form method="POST" onsubmit="return adminConfirmForm(event, this, 'İzin kaydı silinsin mi?');" style="margin:0;">
                                         <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>">
                                         <input type="hidden" name="action" value="delete_leave">
                                         <input type="hidden" name="leave_id" value="<?= (int)$leave['id'] ?>">
@@ -462,7 +462,6 @@ function toggleDayStatus(day, isChecked) {
         inputs.forEach(el => {
             el.disabled = false;
         });
-        // Check if all start/end inputs are empty, populate default 09:00 - 20:00
         const startInput = card.querySelector('input[name*="[start]"]');
         const endInput = card.querySelector('input[name*="[end]"]');
         if (startInput && !startInput.value) startInput.value = '09:00';
@@ -484,7 +483,6 @@ function removeScheduleRow(btn, day) {
     if (rows.length > 1) {
         btn.closest('.schedule-row-item').remove();
     } else {
-        // Only 1 row left: clear its inputs and toggle day closed
         const toggle = document.querySelector('.day-toggle-cb[data-day="' + day + '"]');
         if (toggle && toggle.checked) {
             toggle.checked = false;

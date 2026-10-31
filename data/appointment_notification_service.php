@@ -1,13 +1,8 @@
 <?php
-// BİTİRAS — Randevu Bildirim ve Otomatik Hatırlatma Servisi
-// Müşteri ve işletmeye otomatik bildirimler, tekilleştirme ve kuyruk yönetimi.
 
 require_once __DIR__ . '/database.php';
 require_once __DIR__ . '/mail_service.php';
 
-/**
- * Helper to fetch complete appointment metadata.
- */
 function getAppointmentFullDetails(PDO $pdo, int $appointmentId): ?array {
     $stmt = $pdo->prepare("SELECT r.id, r.kullanici_id, r.isletme_id, r.calisan_id, r.hizmet_id,
                                   r.randevu_zamani, r.durum,
@@ -29,32 +24,22 @@ function getAppointmentFullDetails(PDO $pdo, int $appointmentId): ?array {
     return $apt ?: null;
 }
 
-/**
- * Checks whether a notification of a given type was already recorded for this appointment.
- */
 function isAppointmentNotificationSent(PDO $pdo, int $appointmentId, string $type): bool {
     $stmt = $pdo->prepare("SELECT id FROM randevu_bildirim_kayitlari WHERE randevu_id = ? AND bildirim_turu = ? LIMIT 1");
     $stmt->execute([$appointmentId, $type]);
     return (bool)$stmt->fetchColumn();
 }
 
-/**
- * Records a notification event to prevent duplicate sends.
- */
 function recordAppointmentNotification(PDO $pdo, int $appointmentId, string $type, string $recipientEmail): bool {
     try {
         $stmt = $pdo->prepare("INSERT INTO randevu_bildirim_kayitlari (randevu_id, bildirim_turu, alici_eposta, gonderim_zamani)
                                VALUES (?, ?, ?, NOW())");
         return $stmt->execute([$appointmentId, $type, $recipientEmail]);
     } catch (PDOException $e) {
-        // Unique constraint uk_randevu_bildirim prevents duplicate entry
         return false;
     }
 }
 
-/**
- * 1. Randevu Oluşturulduğunda Müşteriye ve İşletmeye Onay Bildirimi Gönderir.
- */
 function notifyAppointmentCreated(int $appointmentId): void {
     global $pdo;
     $apt = getAppointmentFullDetails($pdo, $appointmentId);
@@ -66,7 +51,6 @@ function notifyAppointmentCreated(int $appointmentId): void {
     $service = !empty($apt['hizmet_adi']) ? $apt['hizmet_adi'] : 'Standart Hizmet';
     $price = !empty($apt['fiyat']) ? number_format((float)$apt['fiyat'], 2, ',', '.') . ' TL' : 'Belirtilmedi';
 
-    // Müşteriye E-Posta
     if (!empty($apt['musteri_eposta'])) {
         $custBody = "
         <p>Merhaba <strong>" . htmlspecialchars($apt['musteri_adi'], ENT_QUOTES, 'UTF-8') . "</strong>,</p>
@@ -100,7 +84,6 @@ function notifyAppointmentCreated(int $appointmentId): void {
         );
     }
 
-    // İşletmeye E-Posta
     if (!empty($apt['isletme_eposta'])) {
         $bizBody = "
         <p>Merhaba <strong>" . htmlspecialchars($apt['isletme_adi'], ENT_QUOTES, 'UTF-8') . "</strong>,</p>
@@ -135,9 +118,6 @@ function notifyAppointmentCreated(int $appointmentId): void {
     recordAppointmentNotification($pdo, $appointmentId, 'onay', $apt['musteri_eposta']);
 }
 
-/**
- * 2. Randevu Durumu Değiştiğinde (Onaylandı, Reddedildi, İptal Edildi, Tamamlandı) Bildirim.
- */
 function notifyAppointmentStatusChanged(int $appointmentId, string $newStatus, string $oldStatus): void {
     if ($newStatus === $oldStatus) return;
     global $pdo;
@@ -182,15 +162,10 @@ function notifyAppointmentStatusChanged(int $appointmentId, string $newStatus, s
     }
 }
 
-/**
- * 3. 24 Saat, 2 Saat ve İşletme Hatırlatma Görevleri (CLI Cron).
- * Tekilleştirme: randevu_bildirim_kayitlari tablosu ile her bildirim türü randevu başına yalnız 1 kez gönderilir.
- */
 function processAppointmentReminders(): array {
     global $pdo;
     $counts = ['reminders_24h' => 0, 'reminders_2h' => 0, 'business_reminders' => 0];
 
-    // A. 24 Saat Öncesi Hatırlatma (23-25 saat aralığında olanlar)
     $stmt24 = $pdo->query("SELECT r.id 
                            FROM randevular r 
                            WHERE r.durum IN ('confirmed', 'pending')
@@ -205,7 +180,6 @@ function processAppointmentReminders(): array {
         $dateStr = date('d.m.Y', strtotime($apt['randevu_zamani']));
         $timeStr = date('H:i', strtotime($apt['randevu_zamani']));
 
-        // Müşteri 24h
         if (!empty($apt['musteri_eposta'])) {
             $body = "
             <p>Merhaba <strong>" . htmlspecialchars($apt['musteri_adi'], ENT_QUOTES, 'UTF-8') . "</strong>,</p>
@@ -217,14 +191,12 @@ function processAppointmentReminders(): array {
             </div>
             ";
             $html = renderEmailTemplate('Yarın Randevunuz Var! (24 Saat Kaldı)', $body, 'Randevumu İncele', getSiteBaseUrl() . '/musteri/randevularim.php');
-            enqueueMail($apt['musteri_eposta'], $apt['musteri_adi'], "Hatırlatma: Yarın Randevunuz Var — {$apt['isletme_adi']}", $html, "rem24_cust_{$aptId}", 'hatirlatma_24h');
+            if (queueAppointmentReminder($pdo, (int)$aptId, 'hatirlatma_24h', $apt['musteri_eposta'], $apt['musteri_adi'], "Hatırlatma: Yarın Randevunuz Var — {$apt['isletme_adi']}", $html, "rem24_cust_{$aptId}")) $counts['reminders_24h']++;
         }
 
-        recordAppointmentNotification($pdo, (int)$aptId, 'hatirlatma_24h', $apt['musteri_eposta'] ?? '');
-        $counts['reminders_24h']++;
+
     }
 
-    // B. 2 Saat Öncesi Müşteri Hatırlatması (1-3 saat aralığında olanlar)
     $stmt2 = $pdo->query("SELECT r.id 
                           FROM randevular r 
                           WHERE r.durum IN ('confirmed', 'pending')
@@ -248,14 +220,12 @@ function processAppointmentReminders(): array {
             </div>
             ";
             $html = renderEmailTemplate('Randevunuza 2 Saat Kaldı!', $body, 'Yol Tarifi ve Bilgiler', getSiteBaseUrl() . '/musteri/randevularim.php');
-            enqueueMail($apt['musteri_eposta'], $apt['musteri_adi'], "Son Hatırlatma: Randevunuza 2 Saat Kaldı!", $html, "rem2_cust_{$aptId}", 'hatirlatma_2h');
+            if (queueAppointmentReminder($pdo, (int)$aptId, 'hatirlatma_2h', $apt['musteri_eposta'], $apt['musteri_adi'], "Son Hatırlatma: Randevunuza 2 Saat Kaldı!", $html, "rem2_cust_{$aptId}")) $counts['reminders_2h']++;
         }
 
-        recordAppointmentNotification($pdo, (int)$aptId, 'hatirlatma_2h', $apt['musteri_eposta'] ?? '');
-        $counts['reminders_2h']++;
+
     }
 
-    // C. İşletmeye Yaklaşan Randevu Bildirimi (2 saat içinde)
     $stmtBiz = $pdo->query("SELECT r.id 
                             FROM randevular r 
                             WHERE r.durum IN ('confirmed', 'pending')
@@ -280,13 +250,35 @@ function processAppointmentReminders(): array {
             </div>
             ";
             $html = renderEmailTemplate('Yaklaşan Randevu Bildirimi (İşletme)', $body, 'İşletme Paneline Git', getSiteBaseUrl() . '/isletme/randevular.php');
-            enqueueMail($apt['isletme_eposta'], $apt['isletme_adi'], "Yaklaşan Randevu: {$apt['musteri_adi']} ({$timeStr})", $html, "rem_biz_{$aptId}", 'isletme_yaklasan');
+            if (queueAppointmentReminder($pdo, (int)$aptId, 'isletme_yaklasan', $apt['isletme_eposta'], $apt['isletme_adi'], "Yaklaşan Randevu: {$apt['musteri_adi']} ({$timeStr})", $html, "rem_biz_{$aptId}")) $counts['business_reminders']++;
         }
 
-        recordAppointmentNotification($pdo, (int)$aptId, 'isletme_yaklasan', $apt['isletme_eposta'] ?? '');
-        $counts['business_reminders']++;
+
     }
 
     return $counts;
 }
 
+
+function queueAppointmentReminder(PDO $pdo, int $id, string $type, string $email, string $name, string $subject, string $html, string $key): bool {
+    if ($pdo->inTransaction()) return false;
+    try {
+        $pdo->beginTransaction();
+        $lock = $pdo->prepare('SELECT id FROM randevular WHERE id = ? FOR UPDATE');
+        $lock->execute([$id]);
+        if (!$lock->fetchColumn() || isAppointmentNotificationSent($pdo, $id, $type)) {
+            $pdo->rollBack();
+            return false;
+        }
+        if (enqueueMail($email, $name, $subject, $html, $key, $type) === false || !recordAppointmentNotification($pdo, $id, $type, $email)) {
+            $pdo->rollBack();
+            return false;
+        }
+        $pdo->commit();
+        return true;
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('Appointment reminder queue unavailable.');
+        return false;
+    }
+}

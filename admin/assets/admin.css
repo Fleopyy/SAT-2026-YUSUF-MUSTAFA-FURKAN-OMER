@@ -30,7 +30,6 @@
 }
 
            
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body { 
     font-family: 'Plus Jakarta Sans', sans-serif; 
     background: var(--admin-bg); 
@@ -477,9 +476,6 @@ button { cursor: pointer; font-family: inherit; }
 .status-badge.suspended::before { background: #64748B; }
 
                                            
-/* ============================================================
-   MODERN BUTTON SYSTEM & FORM CONTROLS
-   ============================================================ */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -508,7 +504,6 @@ button { cursor: pointer; font-family: inherit; }
     line-height: 1;
 }
 
-/* Primary Button (Gold/Bronze gradient) */
 .btn-primary {
     background: linear-gradient(135deg, #C28840 0%, #A66E2C 100%);
     color: #FFFFFF !important;
@@ -523,7 +518,6 @@ button { cursor: pointer; font-family: inherit; }
     transform: translateY(-1px);
 }
 
-/* Secondary Button (Clean white card style) */
 .btn-secondary {
     background: #FFFFFF;
     color: #334155 !important;
@@ -539,7 +533,6 @@ button { cursor: pointer; font-family: inherit; }
     box-shadow: 0 2px 5px rgba(15, 23, 42, 0.08);
 }
 
-/* Success Button */
 .btn-success {
     background: #059669;
     color: #FFFFFF !important;
@@ -554,7 +547,6 @@ button { cursor: pointer; font-family: inherit; }
     box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
 }
 
-/* Danger Button */
 .btn-danger {
     background: #DC2626;
     color: #FFFFFF !important;
@@ -569,7 +561,6 @@ button { cursor: pointer; font-family: inherit; }
     box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
 }
 
-/* Warning Button */
 .btn-warning {
     background: #D97706;
     color: #FFFFFF !important;
@@ -583,7 +574,6 @@ button { cursor: pointer; font-family: inherit; }
     transform: translateY(-1px);
 }
 
-/* Soft / Outline Colored Button Variants */
 .btn-soft-primary {
     background: rgba(194, 136, 64, 0.1);
     color: #A66E2C !important;
@@ -644,7 +634,6 @@ button { cursor: pointer; font-family: inherit; }
     transform: translateY(-1px);
 }
 
-/* Button Sizing */
 .btn-sm {
     padding: 6px 12px;
     font-size: 12.5px;
@@ -662,7 +651,6 @@ button { cursor: pointer; font-family: inherit; }
     border-radius: 10px;
 }
 
-/* Icon-only Action Button (for table rows) */
 .action-btn {
     width: 32px;
     height: 32px;
@@ -743,7 +731,6 @@ button { cursor: pointer; font-family: inherit; }
     color: #FFFFFF;
 }
 
-/* Table Actions Container */
 .table-actions {
     display: inline-flex;
     align-items: center;
@@ -752,7 +739,6 @@ button { cursor: pointer; font-family: inherit; }
     white-space: nowrap;
 }
 
-/* Global Form Control */
 .form-control {
     font-family: inherit;
     font-size: 13.5px;
@@ -779,7 +765,6 @@ select.form-control {
     padding-right: 36px;
 }
 
-/* Legacy btn-admin support */
 .btn-admin {
     display: inline-flex;
     align-items: center;

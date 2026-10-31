@@ -1,5 +1,4 @@
 <?php
-// CLI only. BİTİRAS Stage 1: Email Infrastructure & SMTP Security Verification Test.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('CLI only');
@@ -20,7 +19,6 @@ function check1(bool $ok, string $label): void {
 
 echo "=== Aşama 1: Gmail SMTP ve E-Posta Altyapısı Güvenlik Testi ===\n";
 
-// 1. Varsayılan Yapılandırma ve Gmail SMTP Parametreleri
 $emptyEnv = static fn(string $name) => false;
 $defaultLocal = [];
 $settings = mailSettings($defaultLocal, $emptyEnv);
@@ -35,7 +33,6 @@ check1($settings['auth'] === true, 'smtp auth enabled');
 check1($settings['verify_peer'] === true, 'TLS verify_peer strictly true');
 check1($settings['verify_peer_name'] === true, 'TLS verify_peer_name strictly true');
 
-// 2. Ortam Değişkeni Önceliği (Environment variable precedence)
 $envMock = [
     'SMTP_HOST'       => 'smtp-custom.example.com',
     'SMTP_PORT'       => '465',
@@ -56,7 +53,6 @@ check1($envSettings['password'] === 'super-secret-password-xyz', 'env overrides 
 check1($envSettings['from_email'] === 'notifications@example.com', 'env overrides from_email');
 check1($envSettings['from_name'] === 'BiTiras Test', 'env overrides from_name');
 
-// 3. Geçersiz Yapılandırma ve Enjeksiyon Koruması (Fail-Closed)
 $invalidCases = [
     ['port' => 0],
     ['port' => 70000],
@@ -78,7 +74,6 @@ foreach ($invalidCases as $case) {
     check1($rejected, 'invalid configuration rejected: ' . json_encode($case));
 }
 
-// 4. PHPMailer Kurulum ve TLS Sertifika Doğrulaması Kontrolü
 $mailer = createMailer($settings);
 check1($mailer instanceof \PHPMailer\PHPMailer\PHPMailer, 'mailer instance created');
 check1($mailer->Mailer === 'smtp', 'isSMTP configured');
@@ -90,7 +85,6 @@ check1(isset($mailer->SMTPOptions['ssl']['verify_peer']) && $mailer->SMTPOptions
 check1(isset($mailer->SMTPOptions['ssl']['verify_peer_name']) && $mailer->SMTPOptions['ssl']['verify_peer_name'] === true, 'SMTPOptions verify_peer_name true');
 check1(isset($mailer->SMTPOptions['ssl']['allow_self_signed']) && $mailer->SMTPOptions['ssl']['allow_self_signed'] === false, 'SMTPOptions allow_self_signed false');
 
-// 5. Doğrudan Gönderim Giriş Doğrulaması (Ağ isteği yapılmadan)
 $badRecipient = sendMailDirect('invalid-email', 'Test User', 'Konu', '<p>Test</p>');
 check1($badRecipient['success'] === false, 'invalid email rejected');
 
@@ -100,7 +94,6 @@ check1($headerInj['success'] === false, 'CRLF injection rejected');
 $emptyPassRes = sendMailDirect('test@example.com', 'Test User', 'Konu', '<p>Test</p>', '', ['password' => '']);
 check1($emptyPassRes['success'] === false && str_contains($emptyPassRes['message'], 'SMTP kimlik bilgisi eksik'), 'empty password rejected safely');
 
-// 6. E-posta Şablon Motoru ve XSS Koruması
 $maliciousTitle = "<script>alert('XSS')</script>Randevu Onayı";
 $maliciousBody = "<p>Sayın <b>Müşteri</b>, randevunuz oluşturuldu.</p>";
 $maliciousUrl = "javascript:alert('XSS')";
@@ -113,14 +106,12 @@ check1(!str_contains($renderedHtml, "<img src=x"), 'notice escaped against XSS')
 check1(str_contains($renderedHtml, 'BİTİRAS'), 'brand header present');
 check1(str_contains($renderedHtml, '#C28840'), 'brand accent color present');
 
-// 7. Dosya Koruma ve Güvenlik Ayarları Kontrolleri
 $root = dirname(__DIR__);
 $rootHtaccess = file_get_contents($root . '/.htaccess');
 check1(str_contains($rootHtaccess, 'mail\.local'), 'root .htaccess blocks mail.local');
 check1(str_contains(file_get_contents($root . '/data/.htaccess'), 'Require all denied'), 'data/.htaccess blocks all HTTP access');
 check1(str_contains(file_get_contents($root . '/.gitignore'), '/data/mail.local.php'), '.gitignore tracks /data/mail.local.php');
 
-// 8. Auth.php ve Geriye Dönük Uyumluluk (queueEmail)
 check1(function_exists('queueEmail'), 'queueEmail exists in auth.php');
 check1(function_exists('enqueueMail'), 'enqueueMail exists in mail_service.php');
 check1(function_exists('sendMailDirect'), 'sendMailDirect exists in mail_service.php');

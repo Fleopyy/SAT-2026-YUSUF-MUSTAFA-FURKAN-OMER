@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../data/privacy.php';
 $pageTitle = $pageTitle ?? 'İşletme Paneli';
 $stmt = $pdo->prepare('SELECT COUNT(*) FROM isletme_bildirimleri WHERE isletme_id = ? AND okundu = 0');
 $stmt->execute([$businessId]);
@@ -39,7 +40,6 @@ unset($_SESSION['business_flash']);
         .business-notice.info { background:#EFF6FF; color:#1E40AF; border:1px solid #BFDBFE; }
         .business-topbar-name { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
-        /* --- Unified Buttons & Inputs --- */
         .admin-form input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
         .admin-form select {
             height: var(--input-height);
@@ -145,7 +145,6 @@ unset($_SESSION['business_flash']);
             transform: translateY(-1px);
         }
 
-        /* --- Filter Bars --- */
         .business-filter-form {
             display: flex;
             align-items: flex-end;
@@ -168,7 +167,6 @@ unset($_SESSION['business_flash']);
             height: var(--btn-height);
         }
 
-        /* --- Form Labels Height & Subtext Alignment --- */
         .admin-form .form-group {
             margin: 0;
             display: flex;
@@ -198,7 +196,6 @@ unset($_SESSION['business_flash']);
             margin-left: 4px;
         }
 
-        /* --- Service Checkbox Pills (Close to button/checkbox) --- */
         .services-checkbox-list {
             display: flex;
             flex-wrap: wrap;
@@ -243,7 +240,6 @@ unset($_SESSION['business_flash']);
             font-weight: 700 !important;
         }
 
-        /* --- 4-Parameter Grid for Employee Add --- */
         .business-employee-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -261,7 +257,6 @@ unset($_SESSION['business_flash']);
             }
         }
 
-        /* --- Custom Modern File Upload Box --- */
         .custom-file-box {
             position: relative;
             width: 100%;
@@ -343,7 +338,6 @@ unset($_SESSION['business_flash']);
             color: var(--admin-accent);
         }
 
-        /* --- Photo Upload Row --- */
         .business-file-upload-row {
             display: flex;
             align-items: flex-end;
@@ -364,7 +358,6 @@ unset($_SESSION['business_flash']);
             padding: 0 24px;
         }
 
-        /* --- Çalışma Saatleri (Schedule) Styles --- */
         .schedule-hero-banner {
             display: flex;
             align-items: center;

@@ -57,7 +57,6 @@ try {
     $stmt->execute([$end, $note !== '' ? $note : null, $appointmentId]);
     $pdo->commit();
 
-    // Otomatik E-Posta Bildirimi: Musteri ve Isletmeye Bildirim
     try {
         require_once __DIR__ . '/data/appointment_notification_service.php';
         notifyAppointmentCreated($appointmentId);

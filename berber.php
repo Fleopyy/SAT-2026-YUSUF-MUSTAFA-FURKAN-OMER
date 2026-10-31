@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/data/privacy.php';
 require_once __DIR__ . '/data/database.php';
 require_once __DIR__ . '/admin/includes/auth.php';
 
@@ -7,8 +8,13 @@ if (!$businessId) {
     http_response_code(404);
     exit('İşletme bulunamadı.');
 }
+require_once __DIR__ . '/data/maps_config.php';
+
 $stmt = $pdo->prepare("SELECT i.id, i.isletme_adi, i.isletme_sahibi, i.telefon, i.eposta, i.sehir, i.ilce,
-                              i.tam_adres, i.aciklama, cover.fotograf_yolu AS cover_photo, profile.fotograf_yolu AS profile_photo,
+                              i.mahalle, i.cadde_sokak, i.bina_no, i.daire_no, i.posta_kodu,
+                              i.tam_adres, i.aciklama, i.latitude, i.longitude, i.place_id, i.location_verified_at,
+                              i.is_vip, i.gece_acik,
+                              cover.fotograf_yolu AS cover_photo, profile.fotograf_yolu AS profile_photo,
                               AVG(CASE WHEN d.degerlendiren_turu = 'customer' THEN d.puan END) AS average_rating,
                               COUNT(CASE WHEN d.degerlendiren_turu = 'customer' THEN d.id END) AS review_count
                        FROM isletmeler i
@@ -24,6 +30,39 @@ $business = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$business) {
     http_response_code(404);
     exit('İşletme bulunamadı.');
+}
+
+$displayAddress = trim((string)($business['tam_adres'] ?? ''));
+if ($displayAddress === '') {
+    $addrParts = array_filter([
+        $business['mahalle'] ?? '',
+        $business['cadde_sokak'] ?? '',
+        !empty($business['bina_no']) ? 'No: ' . $business['bina_no'] : '',
+        !empty($business['daire_no']) ? 'Daire: ' . $business['daire_no'] : '',
+        $business['ilce'] ?? '',
+        $business['sehir'] ?? '',
+        $business['posta_kodu'] ?? '',
+    ]);
+    $displayAddress = implode(', ', $addrParts);
+}
+
+$hasCoordinates = false;
+$lat = null;
+$lng = null;
+$googleMapsSearchUrl = '';
+$googleMapsDirUrl = '';
+
+if (!empty($business['location_verified_at']) && isset($business['latitude'], $business['longitude']) && is_numeric($business['latitude']) && is_numeric($business['longitude'])) {
+    $latCandidate = (float)$business['latitude'];
+    $lngCandidate = (float)$business['longitude'];
+    if (isValidCoordinate($latCandidate, $lngCandidate)) {
+        $lat = $latCandidate;
+        $lng = $lngCandidate;
+        $hasCoordinates = true;
+        $formattedCoords = number_format($lat, 8, '.', '') . ',' . number_format($lng, 8, '.', '');
+        $googleMapsSearchUrl = 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode($formattedCoords);
+        $googleMapsDirUrl = 'https://www.google.com/maps/dir/?api=1&destination=' . rawurlencode($formattedCoords);
+    }
 }
 
 $stmt = $pdo->prepare('SELECT id, hizmet_adi, fiyat, sure_dakika FROM hizmetler WHERE isletme_id = ? AND aktif_mi = 1 ORDER BY hizmet_adi');
@@ -60,13 +99,18 @@ foreach ($specialBusinessHours as $specialHours) {
 $businessDayNames = [1 => 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi', 'Pazar'];
 $stmt = $pdo->prepare("SELECT f.fotograf_yolu FROM isletme_fotograflari f
                        LEFT JOIN isletme_fotograf_siralama s ON s.fotograf_id = f.id AND s.isletme_id = f.isletme_id
-                       LEFT JOIN isletme_panel_medya m ON m.isletme_id = f.isletme_id
                        WHERE f.isletme_id = ?
-                         AND (m.profil_fotograf_id IS NULL OR m.profil_fotograf_id <> f.id)
-                         AND (m.kapak_fotograf_id IS NULL OR m.kapak_fotograf_id <> f.id)
                        ORDER BY COALESCE(s.sira, f.id), f.id");
 $stmt->execute([$businessId]);
 $gallery = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+$featuredPhotos = array_filter([$business['cover_photo'] ?? null, $business['profile_photo'] ?? null]);
+foreach (array_reverse($featuredPhotos) as $featuredPhoto) {
+    if (!in_array($featuredPhoto, $gallery, true)) {
+        array_unshift($gallery, $featuredPhoto);
+    }
+}
+$gallery = array_values(array_unique($gallery));
 $stmt = $pdo->prepare("SELECT d.puan, d.yorum, d.olusturulma_tarihi, k.ad_soyad, a.cevap
                        FROM degerlendirmeler d INNER JOIN randevular r ON r.id = d.randevu_id
                        LEFT JOIN kullanicilar k ON k.id = d.degerlendiren_id
@@ -82,7 +126,7 @@ $messageType = $_SESSION['mesaj_turu'] ?? 'info';
 unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
 ?>
 <!DOCTYPE html>
-<html lang="tr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="index,follow"><title><?= htmlspecialchars($business['isletme_adi'], ENT_QUOTES, 'UTF-8') ?> — BiTıraş</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><link rel="stylesheet" href="/style.css"></head>
+<html lang="tr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="index,follow"><title><?= htmlspecialchars($business['isletme_adi'], ENT_QUOTES, 'UTF-8') ?> — BiTıraş</title><?php if (hasFunctionalConsent()): ?><link rel="preconnect" href="https://fonts.googleapis.com"><?php endif; ?><?php if (hasFunctionalConsent()): ?><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><?php endif; ?><?php if (hasFunctionalConsent()): ?><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><?php endif; ?><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><link rel="stylesheet" href="/style.css"><?php if (hasFunctionalConsent()): ?><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""><?php endif; ?></head>
 <body><main class="container py-4" style="max-width:1100px">
     <a href="/" class="btn btn-outline-dark mb-3">← Ana sayfa</a>
     <?php if ($errorMessage): ?><div class="alert alert-<?= $messageType === 'success' ? 'success' : 'warning' ?>"><?= htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
@@ -90,15 +134,85 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
         <div class="business-profile-left">
     <section class="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
         <div style="height:280px;background:#0F172A;position:relative">
-            <?php if ($business['cover_photo']): ?><img src="/<?= htmlspecialchars($business['cover_photo'], ENT_QUOTES, 'UTF-8') ?>" alt="" style="width:100%;height:100%;object-fit:cover"><?php endif; ?>
+            <?php if ($business['cover_photo']): ?><img src="/<?= htmlspecialchars($business['cover_photo'], ENT_QUOTES, 'UTF-8') ?>" alt="Kapak Fotoğrafı" class="js-zoomable-img" style="width:100%;height:100%;object-fit:cover" title="Fotoğrafı büyüt"><?php endif; ?>
             <div style="position:absolute;inset:0;background:linear-gradient(transparent,rgba(15,23,42,.8))"></div>
             <div style="position:absolute;left:24px;right:24px;bottom:20px;color:white;display:flex;align-items:end;gap:16px">
-                <?php if ($business['profile_photo']): ?><img src="/<?= htmlspecialchars($business['profile_photo'], ENT_QUOTES, 'UTF-8') ?>" alt="" style="width:74px;height:74px;object-fit:cover;border-radius:16px;border:2px solid #fff"><?php endif; ?>
-                <div><h1 style="color:white;margin:0"><?= htmlspecialchars($business['isletme_adi'], ENT_QUOTES, 'UTF-8') ?></h1><div><?= htmlspecialchars($business['sehir'] . ' · ' . $business['ilce'], ENT_QUOTES, 'UTF-8') ?> · <?= $business['average_rating'] !== null ? number_format((float)$business['average_rating'],1) . ' ★ (' . (int)$business['review_count'] . ')' : 'Henüz yorum yok' ?></div></div>
+                <?php if ($business['profile_photo']): ?><img src="/<?= htmlspecialchars($business['profile_photo'], ENT_QUOTES, 'UTF-8') ?>" alt="Profil Fotoğrafı" class="js-zoomable-img" style="width:74px;height:74px;object-fit:cover;border-radius:16px;border:2px solid #fff" title="Fotoğrafı büyüt"><?php endif; ?>
+                <div>
+                    <div class="d-flex align-items-center flex-wrap gap-2 mb-1">
+                        <h1 style="color:white;margin:0"><?= htmlspecialchars($business['isletme_adi'], ENT_QUOTES, 'UTF-8') ?></h1>
+                        <?php if (!empty($business['is_vip'])): ?>
+                            <span class="badge" style="background:linear-gradient(135deg, #F59E0B, #D97706);color:#fff;font-weight:700;font-size:12px;padding:5px 10px;border-radius:20px;box-shadow:0 2px 6px rgba(0,0,0,0.3);">
+                                <i class="fa-solid fa-crown me-1 text-warning-light"></i>VIP Salon
+                            </span>
+                        <?php endif; ?>
+                        <?php if (!empty($business['gece_acik'])): ?>
+                            <span class="badge" style="background:linear-gradient(135deg, #4F46E5, #3730A3);color:#fff;font-weight:700;font-size:12px;padding:5px 10px;border-radius:20px;box-shadow:0 2px 6px rgba(0,0,0,0.3);">
+                                <i class="fa-solid fa-moon me-1" style="color:#C7D2FE;"></i>Gece Açık
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                    <div><?= htmlspecialchars($business['sehir'] . ' · ' . $business['ilce'], ENT_QUOTES, 'UTF-8') ?> · <?= $business['average_rating'] !== null ? number_format((float)$business['average_rating'],1) . ' ★ (' . (int)$business['review_count'] . ')' : 'Henüz yorum yok' ?></div>
+                </div>
             </div>
         </div>
         <div class="card-body p-4"><h2 class="h5">İşletme hakkında</h2><p style="white-space:pre-wrap"><?= htmlspecialchars($business['aciklama'] ?? 'İşletme tanıtımı henüz eklenmemiş.', ENT_QUOTES, 'UTF-8') ?></p><p class="mb-0"><strong>Adres:</strong> <?= htmlspecialchars(trim(($business['tam_adres'] ?? '') . ', ' . $business['ilce'] . ', ' . $business['sehir'], ', '), ENT_QUOTES, 'UTF-8') ?><br><strong>Telefon:</strong> <a href="tel:<?= htmlspecialchars($business['telefon'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($business['telefon'], ENT_QUOTES, 'UTF-8') ?></a></p></div>
     </section>
+
+    <?php if ($hasCoordinates || $displayAddress !== ''): ?>
+    <section class="card border-0 shadow-sm rounded-4 p-4 mb-4" id="isletme-konumu">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <h2 class="h5 mb-0" style="color:#102A43;font-weight:700;">
+                <i class="fa-solid fa-map-location-dot me-2" style="color:var(--accent,#F97316)"></i>İşletme Adresi ve Harita Konumu
+            </h2>
+            <?php if ($hasCoordinates): ?>
+                <span class="badge" style="background:#ECFDF5;color:#065F46;border:1px solid #A7F3D0;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;">
+                    <i class="fa-solid fa-circle-check me-1"></i>Doğrulanmış Konum
+                </span>
+            <?php endif; ?>
+        </div>
+
+        <div class="p-3 rounded-3 mb-3" style="background:#F8FAFC;border:1px solid #E2E8F0;">
+            <div class="d-flex align-items-start gap-3">
+                <div style="width:40px;height:40px;border-radius:10px;background:#FFF;border:1px solid #E2E8F0;display:flex;align-items:center;justify-content:center;color:#F97316;flex-shrink:0;box-shadow:0 1px 3px rgba(0,0,0,0.05);font-size:16px;">
+                    <i class="fa-solid fa-location-dot"></i>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <strong style="display:block;color:#1E293B;font-size:14px;margin-bottom:2px;">Açık Adres</strong>
+                    <p style="margin:0;color:#334155;font-size:13.5px;line-height:1.5;">
+                        <?= htmlspecialchars($displayAddress ?: 'Adres belirtilmemiş.', ENT_QUOTES, 'UTF-8') ?>
+                    </p>
+                    <div style="margin-top:4px;color:#64748B;font-size:12px;">
+                        <?= htmlspecialchars($business['ilce'] . ' / ' . $business['sehir'], ENT_QUOTES, 'UTF-8') ?>
+                        <?php if (!empty($business['posta_kodu'])): ?> · Posta Kodu: <?= htmlspecialchars($business['posta_kodu'], ENT_QUOTES, 'UTF-8') ?><?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <?php if ($hasCoordinates): ?>
+            <div id="customerProfileMap" style="width:100%;height:320px;border-radius:12px;overflow:hidden;border:1.5px solid #CBD5E1;margin-bottom:16px;background:#F8FAFC;position:relative;"><?php if (!hasFunctionalConsent()): ?><button type="button" onclick="openCookieSettings()">Harita icin islevsel cerez iznini yonetin</button><?php endif; ?></div>
+
+            <div class="d-flex gap-2 flex-wrap">
+                <a href="<?= htmlspecialchars($googleMapsDirUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer" class="btn btn-primary d-inline-flex align-items-center gap-2" style="background:#075B99;border-color:#075B99;border-radius:10px;padding:9px 18px;font-size:13.5px;font-weight:600;">
+                    <i class="fa-solid fa-diamond-turn-right"></i>
+                    <span>Google Maps ile Yol Tarifi Al</span>
+                </a>
+                <a href="<?= htmlspecialchars($googleMapsSearchUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2" style="border-radius:10px;padding:9px 18px;font-size:13.5px;font-weight:600;">
+                    <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                    <span>Google Maps'te Aç</span>
+                </a>
+            </div>
+        <?php elseif ($displayAddress !== ''): ?>
+            <div>
+                <a href="https://www.google.com/maps/search/?api=1&query=<?= rawurlencode($displayAddress . ', ' . $business['ilce'] . ', ' . $business['sehir']) ?>" target="_blank" rel="noopener noreferrer" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2" style="border-radius:10px;padding:8px 16px;font-size:13px;">
+                    <i class="fa-solid fa-magnifying-glass-location"></i>
+                    <span>Google Haritalar'da Adresi Ara</span>
+                </a>
+            </div>
+        <?php endif; ?>
+    </section>
+    <?php endif; ?>
     <style>
         .business-profile-layout { display:grid; grid-template-columns:minmax(0, 1.55fr) minmax(340px, .95fr); gap:24px; align-items:start; }
         .business-profile-left { min-width:0; }
@@ -152,8 +266,261 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
             .booking-step { font-size:10px; }
             .booking-time-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
         }
+
+        .gallery-item-wrapper {
+            position: relative;
+            overflow: hidden;
+            border-radius: 12px;
+            aspect-ratio: 4/3;
+            background: #F1F5F9;
+            cursor: pointer;
+            border: 1px solid rgba(0,0,0,0.06);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            transition: transform .25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow .25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .gallery-item-wrapper:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px -6px rgba(0,0,0,0.18);
+        }
+        .gallery-thumb-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            transition: transform .4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .gallery-item-wrapper:hover .gallery-thumb-img {
+            transform: scale(1.08);
+        }
+        .gallery-item-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(15,23,42,0.6) 0%, rgba(15,23,42,0.1) 60%, transparent 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity .25s ease;
+        }
+        .gallery-item-wrapper:hover .gallery-item-overlay {
+            opacity: 1;
+        }
+        .gallery-zoom-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.95);
+            color: #0F172A;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+            transform: scale(0.85);
+            transition: transform .25s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .gallery-item-wrapper:hover .gallery-zoom-icon {
+            transform: scale(1);
+        }
+
+        .gallery-lightbox {
+            position: fixed;
+            inset: 0;
+            z-index: 100000;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity .28s ease, visibility .28s ease;
+        }
+        .gallery-lightbox.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .lightbox-backdrop {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.94);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            z-index: 1;
+        }
+        .lightbox-topbar {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 24px;
+            color: #fff;
+        }
+        .lightbox-counter {
+            font-size: 13.5px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            background: rgba(255,255,255,0.12);
+            padding: 6px 14px;
+            border-radius: 20px;
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .lightbox-close-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.18);
+            color: #fff;
+            font-size: 19px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background .2s, transform .2s;
+        }
+        .lightbox-close-btn:hover {
+            background: #EF4444;
+            border-color: #EF4444;
+            transform: scale(1.08);
+        }
+        .lightbox-stage {
+            position: relative;
+            z-index: 10;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 18px;
+            overflow: hidden;
+            user-select: none;
+        }
+        .lightbox-nav-btn {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.22);
+            color: #fff;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all .2s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(8px);
+            flex-shrink: 0;
+            z-index: 12;
+        }
+        .lightbox-nav-btn:hover {
+            background: rgba(255,255,255,0.28);
+            border-color: rgba(255,255,255,0.4);
+            transform: scale(1.1);
+        }
+        .lightbox-nav-btn:active {
+            transform: scale(0.94);
+        }
+        .lightbox-image-container {
+            position: relative;
+            flex: 1;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            max-height: calc(100vh - 180px);
+            padding: 0 14px;
+        }
+        .lightbox-main-img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 12px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.6);
+            transition: opacity .22s ease, transform .22s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: scale(1);
+            opacity: 1;
+        }
+        .lightbox-main-img.changing {
+            opacity: 0.15;
+            transform: scale(0.96);
+        }
+        .lightbox-thumbs-bar {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+            padding: 14px 20px 20px;
+            overflow-x: auto;
+            max-width: 100%;
+            scrollbar-width: none;
+        }
+        .lightbox-thumbs-bar::-webkit-scrollbar { display: none; }
+        .lightbox-thumb-btn {
+            border: 2px solid transparent;
+            border-radius: 8px;
+            overflow: hidden;
+            width: 64px;
+            height: 48px;
+            padding: 0;
+            background: none;
+            opacity: 0.45;
+            cursor: pointer;
+            transition: all .2s;
+            flex-shrink: 0;
+        }
+        .lightbox-thumb-btn img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .lightbox-thumb-btn:hover {
+            opacity: 0.85;
+            transform: translateY(-2px);
+        }
+        .lightbox-thumb-btn.active {
+            opacity: 1;
+            border-color: #F97316;
+            box-shadow: 0 0 14px rgba(249,115,22,0.7);
+            transform: scale(1.1);
+        }
+        @media (max-width: 576px) {
+            .lightbox-topbar { padding: 12px 16px; }
+            .lightbox-stage { padding: 6px 8px; }
+            .lightbox-nav-btn { width: 42px; height: 42px; font-size: 16px; }
+            .lightbox-image-container { max-height: calc(100vh - 150px); padding: 0 6px; }
+            .lightbox-thumb-btn { width: 50px; height: 38px; }
+        }
     </style>
-            <?php if ($gallery): ?><section class="card border-0 shadow-sm rounded-4 p-4 mb-4"><h2 class="h5">Fotoğraf galerisi</h2><div class="row g-3"><?php foreach ($gallery as $photo): ?><div class="col-6 col-md-3"><img src="/<?= htmlspecialchars($photo, ENT_QUOTES, 'UTF-8') ?>" alt="İşletme fotoğrafı" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px"></div><?php endforeach; ?></div></section><?php endif; ?>
+            <?php if ($gallery): ?>
+            <section class="card border-0 shadow-sm rounded-4 p-4 mb-4" id="fotograf-galerisi">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <h2 class="h5">Fotoğraf galerisi</h2>
+                    <span class="badge" style="background:#F1F5F9;color:#475569;border:1px solid #E2E8F0;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:600;">
+                        <?= count($gallery) ?> Fotoğraf
+                    </span>
+                </div>
+                <div class="row g-3" id="galleryGrid">
+                    <?php foreach ($gallery as $index => $photo): ?>
+                        <div class="col-6 col-md-3">
+                            <div class="gallery-item-wrapper" data-gallery-index="<?= $index ?>" role="button" tabindex="0" aria-label="Fotoğrafı büyüt ve incele">
+                                <img src="/<?= htmlspecialchars($photo, ENT_QUOTES, 'UTF-8') ?>" 
+                                     alt="İşletme fotoğrafı" 
+                                     loading="lazy"
+                                     class="gallery-thumb-img">
+                                <div class="gallery-item-overlay">
+                                    <span class="gallery-zoom-icon">
+                                        <i class="fa-solid fa-magnifying-glass-plus"></i>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+            <?php endif; ?>
             <section class="card border-0 shadow-sm rounded-4 p-4 mb-4">
                 <h2 class="h5">Hizmetler ve fiyatlar</h2>
                 <?php if (!$services): ?><p class="mb-0">Aktif hizmet bulunmuyor.</p><?php else: ?>
@@ -457,4 +824,276 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
 })();
 </script>
 <?php endif; ?>
+
+<?php if ($hasCoordinates && hasFunctionalConsent()): ?>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(function() {
+    var lat = <?= number_format($lat, 8, '.', '') ?>;
+    var lng = <?= number_format($lng, 8, '.', '') ?>;
+    var businessName = <?= json_encode($business['isletme_adi'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    var dirUrl = <?= json_encode($googleMapsDirUrl, JSON_UNESCAPED_UNICODE) ?>;
+    var mapEl = document.getElementById('customerProfileMap');
+    if (!mapEl) return;
+
+    var map = L.map('customerProfileMap', {
+        center: [lat, lng],
+        zoom: 16,
+        scrollWheelZoom: false
+    });
+
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    var marker = L.marker([lat, lng]).addTo(map);
+    marker.bindPopup(
+        '<div style="text-align:center;padding:4px;">' +
+            '<strong style="font-size:13.5px;color:#102A43;">' + businessName.replace(/[&<>"']/g, function(c) { return '&#' + c.charCodeAt(0) + ';'; }) + '</strong><br>' +
+            '<div style="margin-top:6px;">' +
+                '<a href="' + dirUrl + '" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:4px 10px;border-radius:6px;background:#075B99;color:#fff;font-size:11.5px;font-weight:600;text-decoration:none;">' +
+                    '<i class="fa-solid fa-diamond-turn-right me-1"></i> Yol Tarifi Al' +
+                '</a>' +
+            '</div>' +
+        '</div>'
+    ).openPopup();
+})();
+</script>
+<?php endif; ?>
+
+<!-- BİTIRAŞ FOTOĞRAF GALERİSİ LIGHTBOX MODAL -->
+<div id="bitirasGalleryLightbox" class="gallery-lightbox" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="lightbox-backdrop" id="lightboxBackdrop"></div>
+    
+    <!-- Üst Kontrol Çubuğu -->
+    <div class="lightbox-topbar">
+        <div class="lightbox-counter" id="lightboxCounter">1 / 1</div>
+        <div class="lightbox-actions">
+            <button type="button" class="lightbox-close-btn" id="lightboxCloseBtn" aria-label="Kapat (Esc)">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Ana Görsel Sahnesi -->
+    <div class="lightbox-stage" id="lightboxStage">
+        <button type="button" class="lightbox-nav-btn prev" id="lightboxPrevBtn" aria-label="Önceki Fotoğraf (Sol Ok)">
+            <i class="fa-solid fa-chevron-left"></i>
+        </button>
+
+        <div class="lightbox-image-container" id="lightboxImgContainer">
+            <img src="" alt="İşletme fotoğrafı" class="lightbox-main-img" id="lightboxMainImg">
+        </div>
+
+        <button type="button" class="lightbox-nav-btn next" id="lightboxNextBtn" aria-label="Sonraki Fotoğraf (Sağ Ok)">
+            <i class="fa-solid fa-chevron-right"></i>
+        </button>
+    </div>
+
+    <!-- Alt Küçük Resim Şeridi (Thumbnails) -->
+    <div class="lightbox-thumbs-bar" id="lightboxThumbsBar"></div>
+</div>
+
+<script>
+(function() {
+    var galleryPhotos = <?= json_encode(array_values(array_map(function($p) { return '/' . ltrim($p, '/'); }, $gallery ?? [])), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+    var lightbox = document.getElementById('bitirasGalleryLightbox');
+    if (!lightbox) return;
+
+    var mainImg = document.getElementById('lightboxMainImg');
+    var counter = document.getElementById('lightboxCounter');
+    var prevBtn = document.getElementById('lightboxPrevBtn');
+    var nextBtn = document.getElementById('lightboxNextBtn');
+    var closeBtn = document.getElementById('lightboxCloseBtn');
+    var backdrop = document.getElementById('lightboxBackdrop');
+    var thumbsBar = document.getElementById('lightboxThumbsBar');
+    var stage = document.getElementById('lightboxStage');
+
+    var currentList = (galleryPhotos && galleryPhotos.length) ? galleryPhotos.slice() : [];
+    var currentIndex = 0;
+    var isOpen = false;
+
+    function buildThumbnails() {
+        if (!thumbsBar) return;
+        thumbsBar.innerHTML = '';
+        if (currentList.length <= 1) {
+            thumbsBar.style.display = 'none';
+            return;
+        }
+        thumbsBar.style.display = 'flex';
+        currentList.forEach(function(src, idx) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'lightbox-thumb-btn' + (idx === currentIndex ? ' active' : '');
+            btn.setAttribute('aria-label', 'Fotoğraf ' + (idx + 1));
+            var img = document.createElement('img');
+            img.src = src;
+            img.alt = '';
+            btn.appendChild(img);
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                goToPhoto(idx);
+            });
+            thumbsBar.appendChild(btn);
+        });
+    }
+
+    function updateView() {
+        if (!currentList.length) return;
+        if (currentIndex < 0) currentIndex = currentList.length - 1;
+        if (currentIndex >= currentList.length) currentIndex = 0;
+
+        var src = currentList[currentIndex];
+        
+        mainImg.classList.add('changing');
+        setTimeout(function() {
+            mainImg.src = src;
+            mainImg.classList.remove('changing');
+        }, 120);
+
+        counter.textContent = (currentIndex + 1) + ' / ' + currentList.length;
+
+        if (currentList.length <= 1) {
+            prevBtn.style.display = 'none';
+            nextBtn.style.display = 'none';
+        } else {
+            prevBtn.style.display = 'flex';
+            nextBtn.style.display = 'flex';
+        }
+
+        if (thumbsBar) {
+            var thumbBtns = thumbsBar.querySelectorAll('.lightbox-thumb-btn');
+            thumbBtns.forEach(function(btn, idx) {
+                if (idx === currentIndex) {
+                    btn.classList.add('active');
+                    btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        if (currentList.length > 1) {
+            var nextIdx = (currentIndex + 1) % currentList.length;
+            var prevIdx = (currentIndex - 1 + currentList.length) % currentList.length;
+            new Image().src = currentList[nextIdx];
+            new Image().src = currentList[prevIdx];
+        }
+    }
+
+    function openLightbox(index, customList) {
+        if (customList && customList.length) {
+            currentList = customList;
+        } else {
+            currentList = (galleryPhotos && galleryPhotos.length) ? galleryPhotos.slice() : [];
+        }
+        if (!currentList.length) return;
+
+        currentIndex = index || 0;
+        isOpen = true;
+        lightbox.classList.add('active');
+        lightbox.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+
+        buildThumbnails();
+        updateView();
+    }
+
+    function closeLightbox() {
+        if (!isOpen) return;
+        isOpen = false;
+        lightbox.classList.remove('active');
+        lightbox.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+        setTimeout(function() {
+            mainImg.src = '';
+        }, 250);
+    }
+
+    function goToPhoto(idx) {
+        currentIndex = idx;
+        updateView();
+    }
+
+    function nextPhoto() {
+        if (currentList.length <= 1) return;
+        currentIndex = (currentIndex + 1) % currentList.length;
+        updateView();
+    }
+
+    function prevPhoto() {
+        if (currentList.length <= 1) return;
+        currentIndex = (currentIndex - 1 + currentList.length) % currentList.length;
+        updateView();
+    }
+
+    if (nextBtn) nextBtn.addEventListener('click', function(e) { e.stopPropagation(); nextPhoto(); });
+    if (prevBtn) prevBtn.addEventListener('click', function(e) { e.stopPropagation(); prevPhoto(); });
+    if (closeBtn) closeBtn.addEventListener('click', function(e) { e.stopPropagation(); closeLightbox(); });
+    if (backdrop) backdrop.addEventListener('click', closeLightbox);
+
+    window.addEventListener('keydown', function(e) {
+        if (!isOpen) return;
+        if (e.key === 'Escape') {
+            closeLightbox();
+        } else if (e.key === 'ArrowRight') {
+            nextPhoto();
+        } else if (e.key === 'ArrowLeft') {
+            prevPhoto();
+        }
+    });
+
+    var touchStartX = 0;
+    var touchStartY = 0;
+    stage.addEventListener('touchstart', function(e) {
+        if (e.touches && e.touches.length === 1) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }
+    }, { passive: true });
+
+    stage.addEventListener('touchend', function(e) {
+        if (e.changedTouches && e.changedTouches.length === 1) {
+            var diffX = e.changedTouches[0].clientX - touchStartX;
+            var diffY = e.changedTouches[0].clientY - touchStartY;
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 40) {
+                if (diffX < 0) {
+                    nextPhoto();
+                } else {
+                    prevPhoto();
+                }
+            }
+        }
+    }, { passive: true });
+
+    document.querySelectorAll('.gallery-item-wrapper').forEach(function(el) {
+        el.addEventListener('click', function() {
+            var idx = parseInt(el.getAttribute('data-gallery-index'), 10) || 0;
+            openLightbox(idx, galleryPhotos);
+        });
+        el.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                el.click();
+            }
+        });
+    });
+
+    document.querySelectorAll('.js-zoomable-img').forEach(function(img) {
+        img.style.cursor = 'pointer';
+        img.addEventListener('click', function() {
+            var src = img.getAttribute('src');
+            if (!src) return;
+            var targetIdx = galleryPhotos.indexOf(src);
+            if (targetIdx !== -1) {
+                openLightbox(targetIdx, galleryPhotos);
+            } else {
+                openLightbox(0, [src].concat(galleryPhotos));
+            }
+        });
+    });
+})();
+</script>
+<?php include __DIR__ . '/includes/cookie_banner.php'; ?>
 </body></html>

@@ -131,7 +131,7 @@ include __DIR__ . '/_header.php';
                 <div class="d-flex gap-2 mt-3">
                     <a class="btn btn-sm btn-outline-secondary" href="/berber.php?id=<?= (int)$appointment['isletme_id'] ?>">İşletme profili</a>
                     <form method="POST" action="/musteri/randevularim.php" class="d-inline" onsubmit="return confirm('Randevunuzu iptal etmek istediğinize emin misiniz?');">
-                        <input type="hidden" name="_csrf_token" value="<?= customerCsrfToken() ?>">
+                        <input type="hidden" name="csrf_token" value="<?= customerEscape(generateCsrfToken()) ?>">
                         <input type="hidden" name="action" value="cancel">
                         <input type="hidden" name="appointment_id" value="<?= (int)$appointment['id'] ?>">
                         <button type="submit" class="btn btn-sm btn-outline-danger">İptal Et</button>

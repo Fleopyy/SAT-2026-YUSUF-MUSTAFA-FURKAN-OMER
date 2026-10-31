@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/data/privacy.php';
 require_once __DIR__ . '/data/security.php';
 
 $s = [];
@@ -37,6 +38,26 @@ $availableBusinessServices = [];
 $locationDataset = json_decode(file_get_contents(__DIR__ . '/data/turkey_districts.json'), true, 512, JSON_THROW_ON_ERROR);
 $turkeyDistricts = $locationDataset['districts'];
 $searchPerformed = ($_GET['ara'] ?? '') === '1';
+$activeFilter = trim((string)($_GET['filtre'] ?? 'tumu'));
+if (!in_array($activeFilter, ['tumu', 'vip', 'puan', 'gece'], true)) {
+    $activeFilter = 'tumu';
+}
+
+$buildFilterUrl = function(string $filterKey) use (&$searchPerformed, &$searchCity, &$searchDistrict, &$searchTerm): string {
+    $params = [];
+    if (!empty($searchPerformed)) {
+        $params['ara'] = '1';
+        if ($searchCity !== '') $params['sehir'] = $searchCity;
+        if ($searchDistrict !== '') $params['ilce'] = $searchDistrict;
+        if ($searchTerm !== '') $params['hizmet'] = $searchTerm;
+    }
+    if ($filterKey !== 'tumu') {
+        $params['filtre'] = $filterKey;
+    }
+    $query = !empty($params) ? 'index.php?' . http_build_query($params) : 'index.php';
+    return $query . '#barbers';
+};
+
 $searchCity = is_string($_GET['sehir'] ?? null) ? trim($_GET['sehir']) : '';
 $searchDistrict = is_string($_GET['ilce'] ?? null) ? trim($_GET['ilce']) : '';
 $searchTerm = is_string($_GET['hizmet'] ?? null) ? trim($_GET['hizmet']) : '';
@@ -109,7 +130,20 @@ try {
         )';
         $businessParams[] = '%' . $searchTerm . '%';
     }
+
+    if ($activeFilter === 'vip') {
+        $businessConditions[] = 'i.is_vip = 1';
+    } elseif ($activeFilter === 'gece') {
+        $businessConditions[] = 'i.gece_acik = 1';
+    }
+
+    $orderBy = 'rating DESC, i.isletme_adi ASC';
+    if ($activeFilter === 'puan') {
+        $orderBy = 'rating DESC, review_count DESC, i.isletme_adi ASC';
+    }
+
     $businessSql = "SELECT i.id, i.isletme_adi, i.isletme_sahibi, i.sehir, i.ilce, i.tam_adres, i.aciklama,
+                                i.is_vip, i.gece_acik,
                                 COALESCE(r.rating, 0) AS rating, COALESCE(r.review_count, 0) AS review_count,
                                 cover.fotograf_yolu AS cover_photo, profile.fotograf_yolu AS profile_photo
                          FROM isletmeler i
@@ -122,7 +156,7 @@ try {
                          LEFT JOIN isletme_fotograflari cover ON cover.id = m.kapak_fotograf_id AND cover.isletme_id = i.id
                          LEFT JOIN isletme_fotograflari profile ON profile.id = m.profil_fotograf_id AND profile.isletme_id = i.id
                          WHERE " . implode(' AND ', $businessConditions) . "
-                         ORDER BY rating DESC, i.isletme_adi";
+                         ORDER BY " . $orderBy;
     if (!$searchPerformed) {
         $businessSql .= ' LIMIT 12';
     }
@@ -151,12 +185,12 @@ try {
     <title><?= htmlspecialchars($s['site_baslik'] ?? 'BiTıraş | Premium Berber & Erkek Kuaförü Randevu Sistemi', ENT_QUOTES, 'UTF-8') ?></title>
     <meta name="description"
         content="<?= htmlspecialchars($s['site_aciklama'] ?? 'Türkiye\'nin en seçkin berber ve erkek kuaförlerinden anında online randevu alın. Sıra beklemeden tarzınızı keşfedin.', ENT_QUOTES, 'UTF-8') ?>">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
+    <?php if (hasFunctionalConsent()): ?><link rel="preconnect" href="https://fonts.googleapis.com"><?php endif; ?>
+    <?php if (hasFunctionalConsent()): ?><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><?php endif; ?>
+    <?php if (hasFunctionalConsent()): ?><link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap"
-        rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+        rel="stylesheet"><?php endif; ?>
+    <?php if (hasFunctionalConsent()): ?><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><?php endif; ?>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
 
@@ -608,16 +642,41 @@ try {
                         </p>
                     </div>
 
-                    <div class="d-flex gap-2 overflow-auto pt-3 pt-md-0">
-                        <button class="btn btn-dark btn-sm rounded-3 px-3">Tümü</button>
-                        <button class="btn btn-outline-dark btn-sm rounded-3 px-3">VIP Salonlar</button>
-                        <button class="btn btn-outline-dark btn-sm rounded-3 px-3">En Yüksek Puanlılar</button>
-                        <button class="btn btn-outline-dark btn-sm rounded-3 px-3">Gece Açık</button>
+                    <div class="d-flex gap-2 overflow-auto pt-3 pt-md-0" id="featured-filter-buttons">
+                        <a href="<?= $buildFilterUrl('tumu') ?>" class="btn <?= $activeFilter === 'tumu' ? 'btn-dark' : 'btn-outline-dark' ?> btn-sm rounded-3 px-3 text-nowrap js-filter-link" data-filter="tumu">Tümü</a>
+                        <a href="<?= $buildFilterUrl('vip') ?>" class="btn <?= $activeFilter === 'vip' ? 'btn-dark' : 'btn-outline-dark' ?> btn-sm rounded-3 px-3 text-nowrap js-filter-link" data-filter="vip">VIP Salonlar</a>
+                        <a href="<?= $buildFilterUrl('puan') ?>" class="btn <?= $activeFilter === 'puan' ? 'btn-dark' : 'btn-outline-dark' ?> btn-sm rounded-3 px-3 text-nowrap js-filter-link" data-filter="puan">En Yüksek Puanlılar</a>
+                        <a href="<?= $buildFilterUrl('gece') ?>" class="btn <?= $activeFilter === 'gece' ? 'btn-dark' : 'btn-outline-dark' ?> btn-sm rounded-3 px-3 text-nowrap js-filter-link" data-filter="gece">Gece Açık</a>
                     </div>
                 </div>
-                <div class="row g-4">
+                <div class="row g-4" id="featured-cards-grid">
                     <?php if (!$featuredBusinesses): ?>
-                        <div class="col-12"><div class="empty-state"><h4><?= $searchPerformed ? 'Bu konumda eşleşen berber bulunamadı' : 'Şu anda yayında işletme bulunmuyor' ?></h4><p><?= $searchPerformed ? 'Farklı bir şehir, ilçe veya hizmet seçip tekrar arayabilirsin.' : 'Yeni onaylanan işletmeler burada görüntülenecek.' ?></p></div></div>
+                        <div class="col-12">
+                            <div class="empty-state">
+                                <h4>
+                                    <?php if ($searchPerformed): ?>
+                                        Bu konumda eşleşen berber bulunamadı
+                                    <?php elseif ($activeFilter === 'vip'): ?>
+                                        Şu anda VIP salon bulunmuyor
+                                    <?php elseif ($activeFilter === 'gece'): ?>
+                                        Şu anda gece açık işletme bulunmuyor
+                                    <?php else: ?>
+                                        Şu anda yayında işletme bulunmuyor
+                                    <?php endif; ?>
+                                </h4>
+                                <p>
+                                    <?php if ($searchPerformed): ?>
+                                        Farklı bir şehir, ilçe veya hizmet seçip tekrar arayabilirsin.
+                                    <?php elseif ($activeFilter === 'vip'): ?>
+                                        Yönetim tarafından onaylanan VIP salonlar burada listelenecektir.
+                                    <?php elseif ($activeFilter === 'gece'): ?>
+                                        Gece saatlerinde hizmet veren salonlar burada listelenecektir.
+                                    <?php else: ?>
+                                        Yeni onaylanan işletmeler burada görüntülenecek.
+                                    <?php endif; ?>
+                                </p>
+                            </div>
+                        </div>
                     <?php else: foreach ($featuredBusinesses as $featuredBusiness):
                         $imagePath = $featuredBusiness['cover_photo'] ?: $featuredBusiness['profile_photo'];
                         $businessServices = $featuredServices[(int)$featuredBusiness['id']] ?? [];
@@ -627,6 +686,18 @@ try {
                                 <a href="/berber.php?id=<?= (int)$featuredBusiness['id'] ?>" class="text-decoration-none text-dark">
                                     <div class="position-relative" style="height:220px;background:#1E293B;">
                                         <?php if ($imagePath): ?><img src="/<?= htmlspecialchars($imagePath, ENT_QUOTES, 'UTF-8') ?>" alt="<?= htmlspecialchars($featuredBusiness['isletme_adi'], ENT_QUOTES, 'UTF-8') ?>" class="w-100 h-100 object-fit-cover"><?php else: ?><div class="w-100 h-100 d-flex align-items-center justify-content-center text-white"><i class="fa-solid fa-scissors fa-3x"></i></div><?php endif; ?>
+                                        <div class="position-absolute top-0 start-0 m-3 d-flex flex-column gap-1" style="z-index:2;">
+                                            <?php if (!empty($featuredBusiness['is_vip'])): ?>
+                                                <span class="badge" style="background:linear-gradient(135deg, #F59E0B, #D97706);color:#fff;font-weight:700;font-size:11px;padding:5px 9px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.3);letter-spacing:0.5px;">
+                                                    <i class="fa-solid fa-crown me-1 text-warning-light"></i>VIP
+                                                </span>
+                                            <?php endif; ?>
+                                            <?php if (!empty($featuredBusiness['gece_acik'])): ?>
+                                                <span class="badge" style="background:linear-gradient(135deg, #4F46E5, #3730A3);color:#fff;font-weight:700;font-size:11px;padding:5px 9px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.3);letter-spacing:0.5px;">
+                                                    <i class="fa-solid fa-moon me-1" style="color:#C7D2FE;"></i>Gece Açık
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
                                         <span class="position-absolute top-0 end-0 m-3 badge badge-dark-custom"><i class="fa-solid fa-star me-1" style="color:var(--accent)"></i><?= $featuredBusiness['review_count'] ? number_format((float)$featuredBusiness['rating'],1) : 'Yeni' ?> <span class="text-muted fw-normal">(<?= (int)$featuredBusiness['review_count'] ?>)</span></span>
                                         <span class="position-absolute bottom-0 start-0 m-3 text-white fw-bold text-xs"><i class="fa-solid fa-location-dot me-1" style="color:var(--accent)"></i><?= htmlspecialchars($featuredBusiness['sehir'] . ', ' . $featuredBusiness['ilce'], ENT_QUOTES, 'UTF-8') ?></span>
                                     </div>
@@ -820,6 +891,16 @@ try {
                                 class="text-secondary text-decoration-none">Salon Kaydı Oluştur</a></li>
                     </ul>
                 </div>
+                <div class="col-6 col-lg-2">
+                    <h5 class="text-white text-uppercase fs-6 fw-bold mb-3">Yasal</h5>
+                    <ul class="list-unstyled text-sm space-y-2">
+                        <li><a href="/kvkk.php" class="text-secondary text-decoration-none">KVKK Aydınlatma</a></li>
+                        <li><a href="/gizlilik-politikasi.php" class="text-secondary text-decoration-none">Gizlilik Politikası</a></li>
+                        <li><a href="/cerez-politikasi.php" class="text-secondary text-decoration-none">Çerez Politikası</a></li>
+                        <li><a href="/kullanim-kosullari.php" class="text-secondary text-decoration-none">Kullanım Koşulları</a></li>
+                        <li><a href="javascript:void(0)" onclick="openCookieSettings()" class="text-secondary text-decoration-none">Çerez Tercihleri</a></li>
+                    </ul>
+                </div>
                 <div class="col-lg-4">
                     <h5 class="text-white text-uppercase fs-6 fw-bold mb-3">İletişim & Destek</h5>
                     <p class="text-secondary text-sm mb-1">E-posta: <?= htmlspecialchars($s['iletisim_eposta'] ?? 'destek@BiTıraş.com', ENT_QUOTES, 'UTF-8') ?></p>
@@ -879,6 +960,51 @@ try {
     ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;</script>
     <script src="app.js"></script>
     <?php if (($_GET['login'] ?? '') === 'customer'): ?><script>document.addEventListener('DOMContentLoaded', () => openAuthModal('login', 'customer'));</script><?php endif; ?>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const filterLinks = document.querySelectorAll(".js-filter-link");
+    const grid = document.getElementById("featured-cards-grid");
+
+    filterLinks.forEach(link => {
+        link.addEventListener("click", function(e) {
+            e.preventDefault();
+            const targetUrl = this.getAttribute("href");
+            if (!targetUrl) return;
+
+            filterLinks.forEach(l => {
+                l.classList.remove("btn-dark");
+                l.classList.add("btn-outline-dark");
+            });
+            this.classList.remove("btn-outline-dark");
+            this.classList.add("btn-dark");
+
+            if (grid) {
+                grid.style.opacity = "0.35";
+                grid.style.transition = "opacity 0.15s ease";
+            }
+
+            fetch(targetUrl, {
+                headers: { "X-Requested-With": "XMLHttpRequest" }
+            })
+            .then(res => res.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, "text/html");
+                const newGrid = doc.getElementById("featured-cards-grid");
+                if (newGrid && grid) {
+                    grid.innerHTML = newGrid.innerHTML;
+                    grid.style.opacity = "1";
+                }
+                history.pushState(null, "", targetUrl);
+            })
+            .catch(() => {
+                window.location.href = targetUrl;
+            });
+        });
+    });
+});
+</script>
+    <?php include __DIR__ . '/includes/cookie_banner.php'; ?>
 </body>
 
 </html>

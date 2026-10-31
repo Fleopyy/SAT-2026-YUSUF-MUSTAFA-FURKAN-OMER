@@ -1,5 +1,4 @@
 <?php
-// Autoloader for bundled PHPMailer
 spl_autoload_register(function ($class) {
     $prefix = 'PHPMailer\\PHPMailer\\';
     $baseDir = __DIR__ . '/';

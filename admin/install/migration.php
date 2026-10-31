@@ -1,5 +1,4 @@
 <?php
-// Maintenance and test tools must never run through HTTP.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -40,6 +39,8 @@ runMigration($pdo,
 
                                                   
 $alterColumns = [
+    ["isletmeler", "is_vip", "TINYINT(1) NOT NULL DEFAULT 0 AFTER `durum`"],
+    ["isletmeler", "gece_acik", "TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_vip`"],
     ["isletmeler", "onaylayan_admin_id", "INT(11) NULL DEFAULT NULL AFTER `durum`"],
     ["isletmeler", "onay_tarihi", "DATETIME NULL DEFAULT NULL AFTER `onaylayan_admin_id`"],
     ["isletmeler", "red_tarihi", "DATETIME NULL DEFAULT NULL AFTER `onay_tarihi`"],

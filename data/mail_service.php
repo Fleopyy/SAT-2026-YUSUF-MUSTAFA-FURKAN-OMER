@@ -1,6 +1,4 @@
 <?php
-// Central Mail Service for BİTİRAS
-// Secure Gmail SMTP transmission via PHPMailer with strict TLS validation.
 
 require_once __DIR__ . '/mail_config.php';
 require_once dirname(__DIR__) . '/includes/PHPMailer/autoload.php';
@@ -9,9 +7,6 @@ use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 use PHPMailer\PHPMailer\SMTP;
 
-/**
- * Creates and configures a PHPMailer instance using verified Gmail SMTP settings.
- */
 function createMailer(?array $settings = null): PHPMailer
 {
     $settings = $settings ?? mailSettings();
@@ -24,15 +19,15 @@ function createMailer(?array $settings = null): PHPMailer
     $mail->Username   = $settings['username'];
     $mail->Password   = $settings['password'];
     $mail->CharSet    = 'UTF-8';
+    $mail->Timeout = 20;
+    $mail->SMTPDebug = 0;
 
-    // Strict STARTTLS / TLS configuration
     if ($settings['secure'] === 'tls') {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
     } elseif ($settings['secure'] === 'ssl') {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
     }
 
-    // Explicit TLS peer and name verification; never disable certificate verification.
     $mail->SMTPOptions = [
         'ssl' => [
             'verify_peer'       => true,
@@ -45,11 +40,6 @@ function createMailer(?array $settings = null): PHPMailer
     return $mail;
 }
 
-/**
- * Sends an email directly via Gmail SMTP.
- * Returns an array with ['success' => bool, 'message' => string].
- * Secrets and passwords are NEVER exposed in return values or error logs.
- */
 function sendMailDirect(
     string $toEmail,
     string $toName,
@@ -63,11 +53,11 @@ function sendMailDirect(
         return ['success' => false, 'message' => 'Geçersiz alıcı e-posta adresi.'];
     }
 
-    // Check for header injection in subject or recipient
     if (preg_match('/[\r\n\x00]/', $subject) || preg_match('/[\r\n\x00]/', $toName)) {
         return ['success' => false, 'message' => 'E-posta başlığında geçersiz karakterler bulundu.'];
     }
 
+    $deliveryStarted = false;
     try {
         $settings = $customSettings ?? mailSettings();
         if (empty($settings['password'])) {
@@ -85,28 +75,27 @@ function sendMailDirect(
         $mailer->Body    = $htmlBody;
         $mailer->AltBody = !empty($textBody) ? $textBody : strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>'], "\n", $htmlBody));
 
+        if (!$mailer->smtpConnect()) throw new RuntimeException('SMTP connection unavailable');
+        $deliveryStarted = true;
         $mailer->send();
         return ['success' => true, 'message' => 'E-posta başarıyla gönderildi.'];
     } catch (Exception $e) {
-        $cleanError = preg_replace('/[a-zA-Z0-9_\-\.]{16,}/', '***', $e->getMessage());
-        error_log('BİTİRAS Mail Gönderim Hatası: ' . $cleanError);
+        error_log('SMTP delivery failed.');
         return [
             'success' => false,
-            'message' => 'E-posta gönderimi başarısız oldu: ' . htmlspecialchars($cleanError, ENT_QUOTES, 'UTF-8')
+            'retryable' => !$deliveryStarted,
+            'message' => 'E-posta gonderimi basarisiz oldu.'
         ];
     } catch (Throwable $t) {
-        error_log('BİTİRAS Mail Beklenmeyen Hata: ' . $t->getMessage());
+        error_log('Mail service unavailable.');
         return [
             'success' => false,
+            'retryable' => !$deliveryStarted,
             'message' => 'E-posta servisi geçici olarak kullanılamıyor.'
         ];
     }
 }
 
-/**
- * Enqueues an email into eposta_kuyrugu with idempotency / deduplication support.
- * Backwards compatible with legacy 4-column schema as well as migrated schema.
- */
 function enqueueMail(
     string $toEmail,
     ?string $toName,
@@ -125,7 +114,13 @@ function enqueueMail(
         return false;
     }
 
-    // Inspect schema columns once per request
+    $lockHeld = false;
+    try {
+    $enqueueLock = 'bitiras_enqueue_' . substr(hash('sha256', (string)$pdo->query('SELECT DATABASE()')->fetchColumn() . ($idempotencyKey ?? ($toEmail . $subject))), 0, 40);
+    $lockStmt = $pdo->prepare('SELECT GET_LOCK(?, 2)');
+    $lockStmt->execute([$enqueueLock]);
+    if ((int)$lockStmt->fetchColumn() !== 1) return false;
+    $lockHeld = true;
     static $hasIdempotencyCol = null;
     static $hasTurCol = null;
     if ($hasIdempotencyCol === null) {
@@ -140,7 +135,6 @@ function enqueueMail(
         }
     }
 
-    // Deduplication check
     if (!empty($idempotencyKey)) {
         if ($hasIdempotencyCol) {
             $stmt = $pdo->prepare("SELECT id FROM eposta_kuyrugu WHERE idempotency_key = ? LIMIT 1");
@@ -150,9 +144,8 @@ function enqueueMail(
                 return (int)$existingId; // Already queued or processed
             }
         } else {
-            // Fallback deduplication: prevent pending duplicate within last 15 minutes
-            $stmt = $pdo->prepare("SELECT id FROM eposta_kuyrugu WHERE alici_eposta = ? AND konu = ? AND durum = 'pending' AND olusturulma_tarihi > DATE_SUB(NOW(), INTERVAL 15 MINUTE) LIMIT 1");
-            $stmt->execute([$toEmail, $subject]);
+            $stmt = $pdo->prepare("SELECT id FROM eposta_kuyrugu WHERE alici_eposta = ? AND konu = ? AND icerik = ? LIMIT 1");
+            $stmt->execute([$toEmail, $subject, $body]);
             $existingId = $stmt->fetchColumn();
             if ($existingId) {
                 return (int)$existingId;
@@ -160,22 +153,29 @@ function enqueueMail(
         }
     }
 
-    // Insert into database
     if ($hasIdempotencyCol && $hasTurCol) {
         $stmt = $pdo->prepare("INSERT INTO eposta_kuyrugu (alici_eposta, alici_ad, konu, icerik, idempotency_key, tur) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$toEmail, $toName, $subject, $body, $idempotencyKey, $tur]);
+        if (!$stmt->execute([$toEmail, $toName, $subject, $body, $idempotencyKey, $tur])) return false;
     } else {
         $stmt = $pdo->prepare("INSERT INTO eposta_kuyrugu (alici_eposta, alici_ad, konu, icerik) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$toEmail, $toName, $subject, $body]);
+        if (!$stmt->execute([$toEmail, $toName, $subject, $body])) return false;
     }
 
-    return (int)$pdo->lastInsertId();
+    $id = (int)$pdo->lastInsertId();
+    return $id > 0 ? $id : false;
+    } catch (Throwable $e) {
+        error_log('Mail queue unavailable.');
+        return false;
+    } finally {
+        if ($lockHeld) {
+            try {
+                $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+                $release->execute([$enqueueLock]);
+            } catch (Throwable $e) { error_log('Mail queue lock release failed.'); }
+        }
+    }
 }
 
-/**
- * Processes pending items from eposta_kuyrugu and transmits them via SMTP.
- * Keeps track of attempts, stores sanitized failure messages, and flags exhausted jobs.
- */
 function processMailQueue(int $batchSize = 20, ?array $customSettings = null): array
 {
     global $pdo;
@@ -183,8 +183,11 @@ function processMailQueue(int $batchSize = 20, ?array $customSettings = null): a
         return ['processed' => 0, 'sent' => 0, 'failed' => 0, 'message' => 'Veritabanı bağlantısı yok.'];
     }
 
+    $lock = $pdo->query("SELECT GET_LOCK(CONCAT('bitiras_queue_', LEFT(SHA2(DATABASE(), 256), 40)), 0)");
+    if ((int)$lock->fetchColumn() !== 1) return ['processed'=>0, 'sent'=>0, 'failed'=>0];
+    try {
     $batchSize = max(1, min(100, $batchSize));
-    $stmt = $pdo->prepare("SELECT id, alici_eposta, alici_ad, konu, icerik, deneme_sayisi FROM eposta_kuyrugu WHERE durum = 'pending' AND deneme_sayisi < 3 ORDER BY id ASC LIMIT ?");
+    $stmt = $pdo->prepare("SELECT id, alici_eposta, alici_ad, konu, icerik, deneme_sayisi FROM eposta_kuyrugu WHERE durum = 'pending' AND deneme_sayisi < 3 AND (gonderim_tarihi IS NULL OR gonderim_tarihi <= DATE_SUB(NOW(), INTERVAL 5 MINUTE)) ORDER BY id ASC LIMIT ?");
     $stmt->bindValue(1, $batchSize, PDO::PARAM_INT);
     $stmt->execute();
     $queue = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -194,6 +197,9 @@ function processMailQueue(int $batchSize = 20, ?array $customSettings = null): a
 
     foreach ($queue as $item) {
         $newAttempts = (int)$item['deneme_sayisi'] + 1;
+        $claim = $pdo->prepare("UPDATE eposta_kuyrugu SET durum = 'failed', deneme_sayisi = ?, gonderim_tarihi = NOW(), hata_mesaji = 'Delivery outcome uncertain; manual review required' WHERE id = ? AND durum = 'pending' AND deneme_sayisi = ?");
+        $claim->execute([$newAttempts, $item['id'], $item['deneme_sayisi']]);
+        if ($claim->rowCount() !== 1) continue;
         $result = sendMailDirect(
             $item['alici_eposta'],
             $item['alici_ad'] ?? '',
@@ -208,8 +214,8 @@ function processMailQueue(int $batchSize = 20, ?array $customSettings = null): a
             $upd->execute([$newAttempts, $item['id']]);
             $sentCount++;
         } else {
-            $newStatus = ($newAttempts >= 3) ? 'failed' : 'pending';
-            $safeError = mb_substr((string)$result['message'], 0, 500);
+            $newStatus = ($newAttempts >= 3 || ($result['retryable'] ?? true) === false) ? 'failed' : 'pending';
+            $safeError = ($result['retryable'] ?? true) ? 'SMTP delivery failed' : 'Delivery outcome uncertain; manual review required';
             $upd = $pdo->prepare("UPDATE eposta_kuyrugu SET durum = ?, deneme_sayisi = ?, hata_mesaji = ? WHERE id = ?");
             $upd->execute([$newStatus, $newAttempts, $safeError, $item['id']]);
             $failedCount++;
@@ -221,12 +227,11 @@ function processMailQueue(int $batchSize = 20, ?array $customSettings = null): a
         'sent'      => $sentCount,
         'failed'    => $failedCount,
     ];
+    } finally {
+        $pdo->query("SELECT RELEASE_LOCK(CONCAT('bitiras_queue_', LEFT(SHA2(DATABASE(), 256), 40)))");
+    }
 }
 
-/**
- * Renders a responsive, brand-aligned HTML email template.
- * All dynamic parameters are properly sanitized to eliminate HTML injection.
- */
 function renderEmailTemplate(
     string $title,
     string $bodyHtml,
@@ -302,4 +307,20 @@ function renderEmailTemplate(
     </table>
 </body>
 </html>";
+}
+
+function dispatchAccountMail(string $email, string $name, string $subject, string $html, string $key, string $type): bool {
+    $GLOBALS['account_mail_status'] = 'failed';
+    try {
+        $result = sendMailDirect($email, $name, $subject, $html);
+        if ($result['success']) {
+            $GLOBALS['account_mail_status'] = 'smtp_accepted';
+            return true;
+        }
+        if (($result['retryable'] ?? false) && enqueueMail($email, $name, $subject, $html, $key, $type) !== false) {
+            $GLOBALS['account_mail_status'] = 'queued';
+            return true;
+        }
+    } catch (Throwable $e) { error_log('Account mail unavailable.'); }
+    return false;
 }

@@ -191,7 +191,7 @@ include __DIR__ . '/_header.php';
                                 <button class="btn-admin primary sm" type="submit">Kaydet</button>
                             </form>
                         </details>
-                        <form method="POST" onsubmit="return confirm('Çalışan durumunu değiştirmek istiyor musunuz?')">
+                        <form method="POST" onsubmit="return adminConfirmForm(event, this, 'Çalışan durumunu değiştirmek istiyor musunuz?');">
                             <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="toggle"><input type="hidden" name="employee_id" value="<?= (int)$employee['id'] ?>"><input type="hidden" name="active" value="<?= $employee['aktif_mi'] ? 0 : 1 ?>">
                             <button class="btn-admin <?= $employee['aktif_mi'] ? 'danger' : 'success' ?> sm" type="submit"><?= $employee['aktif_mi'] ? 'Pasife al' : 'Aktifleştir' ?></button>
                         </form>

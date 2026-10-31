@@ -1,5 +1,4 @@
 <?php
-// HTTP security headers are owned by the root .htaccess (Apache mod_headers).
 require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/database.php';
 
@@ -46,7 +45,6 @@ function validNewPassword(string $password): bool {
     return strlen($password) >= 10 && strlen($password) <= 72;
 }
 
-// A digest of the current password record acts as a revocation version, without a schema change.
 function bindPasswordSession(string $kind, string $hash): void {
     $_SESSION[$kind . '_password_version'] = hash('sha256', $hash);
 }
@@ -75,3 +73,32 @@ function validatePasswordSessions(): void {
     }
 }
 validatePasswordSessions();
+
+
+function consumeMailRequestLimit(string $purpose, string $account, int $maximum = 3): bool {
+    global $pdo;
+    $ipKey = 'mail:' . substr(hash('sha256', $purpose . ($_SERVER['REMOTE_ADDR'] ?? 'unknown')), 0, 40);
+    $accountKey = 'mail:' . hash('sha256', $purpose . strtolower(trim($account)));
+    $locked = false;
+    try {
+        $lockName = 'bitiras_mail_rate_' . substr(hash('sha256', (string)$pdo->query('SELECT DATABASE()')->fetchColumn()), 0, 32);
+        $lock = $pdo->prepare('SELECT GET_LOCK(?, 2)');
+        $lock->execute([$lockName]);
+        $locked = (int)$lock->fetchColumn() === 1;
+        if (!$locked) return false;
+        $stmt = $pdo->prepare("SELECT COUNT(*) FROM giris_denemeleri WHERE (ip_adresi = ? OR eposta = ?) AND olusturulma_tarihi > DATE_SUB(NOW(), INTERVAL 15 MINUTE)");
+        $stmt->execute([$ipKey, $accountKey]);
+        if ((int)$stmt->fetchColumn() >= $maximum) return false;
+        $stmt = $pdo->prepare('INSERT INTO giris_denemeleri (ip_adresi, eposta, basarili) VALUES (?, ?, 0)');
+        $stmt->execute([$ipKey, $accountKey]);
+        return true;
+    } catch (Throwable $e) {
+        error_log('Mail request limiter unavailable.');
+        return false;
+    } finally {
+        if ($locked) {
+            $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+            $release->execute([$lockName]);
+        }
+    }
+}

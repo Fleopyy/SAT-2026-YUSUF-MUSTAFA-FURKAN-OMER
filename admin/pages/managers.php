@@ -405,7 +405,7 @@ include __DIR__ . '/../includes/header.php';
                                     </a>
 
                                     <?php if ($m['id'] !== $admin['id']): ?>
-                                        <form method="POST" action="/admin/actions/manager_action.php" style="display:inline;" onsubmit="return confirm('Bu yöneticinin durumunu değiştirmek istediğinize emin misiniz?');">
+                                        <form method="POST" action="/admin/actions/manager_action.php" style="display:inline;" onsubmit="return adminConfirmForm(event, this, 'Bu yöneticinin durumunu değiştirmek istediğinize emin misiniz?');">
                                             <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                                             <input type="hidden" name="action" value="toggle_active">
                                             <input type="hidden" name="manager_id" value="<?= $m['id'] ?>">
@@ -414,7 +414,7 @@ include __DIR__ . '/../includes/header.php';
                                             </button>
                                         </form>
 
-                                        <form method="POST" action="/admin/actions/manager_action.php" style="display:inline;" onsubmit="return confirm('Bu yöneticiyi kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!');">
+                                        <form method="POST" action="/admin/actions/manager_action.php" style="display:inline;" onsubmit="return adminConfirmForm(event, this, 'Bu yöneticiyi kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!');">
                                             <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                                             <input type="hidden" name="action" value="delete">
                                             <input type="hidden" name="manager_id" value="<?= $m['id'] ?>">

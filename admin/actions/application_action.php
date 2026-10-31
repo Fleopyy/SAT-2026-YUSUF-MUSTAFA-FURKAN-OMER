@@ -59,7 +59,6 @@ if (!currentBusinessScopeAllows((int)$business['id'])) {
     exit('Forbidden');
 }
 
-// Approval cannot reactivate a suspended business; rejection is only for pending applications.
 $allowedStates = ['approve' => ['pending', 'rejected'], 'reject' => ['pending'], 'suspend' => ['active']];
 if (isset($allowedStates[$action]) && !in_array($business['durum'], $allowedStates[$action], true)) {
     http_response_code(409);

@@ -161,6 +161,15 @@ include __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div style="margin-bottom:20px;">
+                    <div style="margin-bottom:16px;padding:12px 16px;background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;">
+                        <label style="display:flex;align-items:center;gap:10px;font-weight:700;font-size:13px;cursor:pointer;color:#92400E;margin-bottom:0;">
+                            <input type="checkbox" name="is_vip" value="1" <?= !empty($editBusiness['is_vip']) ? 'checked' : '' ?> style="width:18px;height:18px;accent-color:#D97706;cursor:pointer;">
+                            <span><i class="fa-solid fa-crown" style="color:#D97706;"></i> VIP Salon Statüsü</span>
+                        </label>
+                        <div style="font-size:12px;color:#B45309;margin-top:4px;margin-left:28px;">
+                            Bu işletmeyi ana sayfadaki VIP Salonlar sekmesinde gösterir ve özel VIP rozeti kazandırır.
+                        </div>
+                    </div>
                     <label class="form-label" style="font-weight:700;font-size:13px;display:block;margin-bottom:6px;">Tam Adres</label>
                     <textarea name="tam_adres" rows="3" class="form-control" style="width:100%;box-sizing:border-box;"><?= e($editBusiness['tam_adres'] ?? '') ?></textarea>
                 </div>
@@ -191,6 +200,15 @@ include __DIR__ . '/../includes/header.php';
             </h2>
             <div style="display:flex;gap:8px;">
                 <?php if (canCurrentUser('businesses.edit')): ?>
+                    <form method="POST" action="/admin/actions/business_action.php" style="display:inline;margin:0;">
+                        <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                        <input type="hidden" name="action" value="toggle_vip">
+                        <input type="hidden" name="business_id" value="<?= $viewBusiness['id'] ?>">
+                        <button type="submit" class="btn btn-sm" style="<?= !empty($viewBusiness['is_vip']) ? 'background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;' : 'background:#FFF;color:#475569;border:1px solid #CBD5E1;' ?>" title="<?= !empty($viewBusiness['is_vip']) ? 'VIP Özelliğini Kaldır' : 'VIP Özelliği Ver' ?>">
+                            <i class="fa-solid fa-crown me-1" style="<?= !empty($viewBusiness['is_vip']) ? 'color:#D97706;' : 'color:#94A3B8;' ?>"></i>
+                            <?= !empty($viewBusiness['is_vip']) ? 'VIP İptal Et' : 'VIP Özelliği Ver' ?>
+                        </button>
+                    </form>
                     <a href="?edit=<?= $viewBusiness['id'] ?>" class="btn btn-primary btn-sm">
                         <i class="fa-solid fa-pen"></i> Düzenle
                     </a>
@@ -220,6 +238,15 @@ include __DIR__ . '/../includes/header.php';
                 <div>
                     <label style="font-size:11px;font-weight:700;color:var(--admin-text-muted);text-transform:uppercase;">Konum</label>
                     <div style="font-weight:600;"><?= e($viewBusiness['sehir']) ?> / <?= e($viewBusiness['ilce']) ?></div>
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:700;color:var(--admin-text-muted);text-transform:uppercase;">VIP Statüsü</label>
+                    <div>
+                        <span class="badge" style="<?= !empty($viewBusiness['is_vip']) ? 'background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;' : 'background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0;' ?>padding:5px 10px;border-radius:20px;font-size:12px;font-weight:700;">
+                            <i class="fa-solid fa-crown me-1" style="<?= !empty($viewBusiness['is_vip']) ? 'color:#D97706;' : 'color:#94A3B8;' ?>"></i>
+                            <?= !empty($viewBusiness['is_vip']) ? 'VIP Salon' : 'Standart' ?>
+                        </span>
+                    </div>
                 </div>
                 <div>
                     <label style="font-size:11px;font-weight:700;color:var(--admin-text-muted);text-transform:uppercase;">Durum</label>
@@ -383,6 +410,9 @@ include __DIR__ . '/../includes/header.php';
                                 <td>
                                     <div style="font-weight:700;color:var(--admin-text);"><?= e($b['isletme_adi']) ?></div>
                                     <small style="color:var(--admin-text-muted);"><?= e($b['eposta']) ?></small>
+                                    <?php if (!empty($b['is_vip'])): ?>
+                                        <div><span class="badge" style="background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;font-size:11px;padding:2px 7px;border-radius:6px;font-weight:700;display:inline-flex;align-items:center;gap:4px;margin-top:3px;"><i class="fa-solid fa-crown" style="color:#D97706;"></i>VIP SALON</span></div>
+                                    <?php endif; ?>
                                 </td>
                                 <td><?= e($b['isletme_sahibi']) ?></td>
                                 <td>
@@ -412,9 +442,17 @@ include __DIR__ . '/../includes/header.php';
                                             <a href="?edit=<?= $b['id'] ?>" class="action-btn action-btn-edit" title="Düzenle">
                                                 <i class="fa-solid fa-pen"></i>
                                             </a>
+                                            <form method="POST" action="/admin/actions/business_action.php" style="display:inline;" onsubmit="return adminConfirmForm(event, this, '<?= !empty($b['is_vip']) ? 'İşletmenin VIP özelliğini kaldırmak istediğinize emin misiniz?' : 'İşletmeye VIP özelliği vermek istediğinize emin misiniz?' ?>');">
+                                                <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
+                                                <input type="hidden" name="action" value="toggle_vip">
+                                                <input type="hidden" name="business_id" value="<?= $b['id'] ?>">
+                                                <button type="submit" class="action-btn" style="<?= !empty($b['is_vip']) ? 'background:#FEF3C7;color:#B45309;border-color:#FCD34D;' : '' ?>" title="<?= !empty($b['is_vip']) ? 'VIP Özelliğini Kaldır' : 'VIP Özelliği Ver' ?>">
+                                                    <i class="fa-solid fa-crown" style="<?= !empty($b['is_vip']) ? 'color:#D97706;' : '' ?>"></i>
+                                                </button>
+                                            </form>
                                         <?php endif; ?>
                                         <?php if (in_array($b['durum'], ['active', 'suspended'], true) && canCurrentUser($b['durum'] === 'active' ? 'businesses.suspend' : 'businesses.reactivate')): ?>
-                                            <form method="POST" action="/admin/actions/business_action.php" style="display:inline;" onsubmit="return confirm('İşletme durumunu değiştirmek istediğinize emin misiniz?');">
+                                            <form method="POST" action="/admin/actions/business_action.php" style="display:inline;" onsubmit="return adminConfirmForm(event, this, 'İşletme durumunu değiştirmek istediğinize emin misiniz?');">
                                                 <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                                                 <input type="hidden" name="action" value="toggle_status">
                                                 <input type="hidden" name="business_id" value="<?= $b['id'] ?>">

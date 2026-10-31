@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/../data/privacy.php';
 $customerPageTitle = $customerPageTitle ?? 'Hesabım';
 ?>
 <!DOCTYPE html>
@@ -39,6 +40,13 @@ $customerPageTitle = $customerPageTitle ?? 'Hesabım';
         <nav class="customer-nav" aria-label="Müşteri hesabı">
             <a href="/musteri/randevularim.php" class="<?= ($customerActivePage ?? '') === 'appointments' ? 'active' : '' ?>">Randevularım</a>
             <a href="/musteri/hesabim.php" class="<?= ($customerActivePage ?? '') === 'account' ? 'active' : '' ?>">Hesabım</a>
+            <form method="POST" action="/login.php" class="d-inline" style="margin:0;">
+                <input type="hidden" name="csrf_token" value="<?= customerEscape(generateCsrfToken()) ?>">
+                <input type="hidden" name="action" value="logout">
+                <button type="submit" class="customer-logout-btn" style="border:0;background:transparent;color:#DC2626;padding:9px 12px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;" title="Güvenli Çıkış">
+                    <i class="fa-solid fa-right-from-bracket"></i><span>Çıkış Yap</span>
+                </button>
+            </form>
         </nav>
     </header>
     <?php if ($customerFlash): ?>

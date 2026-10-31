@@ -9,23 +9,61 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $action = is_string($_POST['action'] ?? null) ? $_POST['action'] : '';
     try {
         if ($action === 'upload') {
-            $path = businessUploadImage($_FILES['photo'] ?? [], $businessId);
+            $rawFiles = $_FILES['photos'] ?? $_FILES['photo'] ?? null;
+            $fileList = [];
+            if ($rawFiles && is_array($rawFiles['name'] ?? null)) {
+                $count = count($rawFiles['name']);
+                for ($i = 0; $i < $count; $i++) {
+                    if (($rawFiles['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                        continue;
+                    }
+                    $fileList[] = [
+                        'name' => $rawFiles['name'][$i] ?? '',
+                        'type' => $rawFiles['type'][$i] ?? '',
+                        'tmp_name' => $rawFiles['tmp_name'][$i] ?? '',
+                        'error' => $rawFiles['error'][$i] ?? UPLOAD_ERR_NO_FILE,
+                        'size' => $rawFiles['size'][$i] ?? 0,
+                    ];
+                }
+            } elseif ($rawFiles && is_array($rawFiles) && ($rawFiles['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                $fileList[] = $rawFiles;
+            }
+
+            if (empty($fileList)) {
+                throw new RuntimeException('Lütfen yüklemek için en az bir fotoğraf seçin.');
+            }
+            if (count($fileList) > 15) {
+                throw new RuntimeException('Tek seferde en fazla 15 fotoğraf yükleyebilirsiniz.');
+            }
+
+            $uploadedPaths = [];
             try {
                 $pdo->beginTransaction();
-                $stmt = $pdo->prepare('INSERT INTO isletme_fotograflari (isletme_id, fotograf_yolu) VALUES (?, ?)');
-                $stmt->execute([$businessId, $path]);
-                $photoId = (int)$pdo->lastInsertId();
-                $stmt = $pdo->prepare('SELECT COALESCE(MAX(sira), -1) + 1 FROM isletme_fotograf_siralama WHERE isletme_id = ?');
-                $stmt->execute([$businessId]);
-                $order = (int)$stmt->fetchColumn();
-                $pdo->prepare('INSERT INTO isletme_fotograf_siralama (fotograf_id, isletme_id, sira) VALUES (?, ?, ?)')->execute([$photoId, $businessId, $order]);
+                $insertPhoto = $pdo->prepare('INSERT INTO isletme_fotograflari (isletme_id, fotograf_yolu) VALUES (?, ?)');
+                $stmtOrder = $pdo->prepare('SELECT COALESCE(MAX(sira), -1) + 1 FROM isletme_fotograf_siralama WHERE isletme_id = ?');
+                $stmtOrder->execute([$businessId]);
+                $nextOrder = (int)$stmtOrder->fetchColumn();
+                $insertOrder = $pdo->prepare('INSERT INTO isletme_fotograf_siralama (fotograf_id, isletme_id, sira) VALUES (?, ?, ?)');
+
+                foreach ($fileList as $file) {
+                    $path = businessUploadImage($file, $businessId);
+                    $uploadedPaths[] = $path;
+                    $insertPhoto->execute([$businessId, $path]);
+                    $photoId = (int)$pdo->lastInsertId();
+                    $insertOrder->execute([$photoId, $businessId, $nextOrder]);
+                    $nextOrder++;
+                }
+
                 $pdo->commit();
-                businessFlash('success', 'Fotoğraf galeriye yüklendi.');
+                $uploadedCount = count($uploadedPaths);
+                businessFlash('success', $uploadedCount === 1 ? 'Fotoğraf galeriye yüklendi.' : ($uploadedCount . ' adet fotoğraf galeriye başarıyla yüklendi.'));
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
-                businessDeleteOwnedFile($path, $businessId);
+                foreach ($uploadedPaths as $path) {
+                    businessDeleteOwnedFile($path, $businessId);
+                }
                 throw $e;
             }
         } elseif ($action === 'feature' || $action === 'unfeature') {
@@ -39,7 +77,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             if (!$stmt->fetchColumn()) {
                 throw new RuntimeException('Fotoğraf bu işletmeye ait değil.');
             }
-            // Zaten seçili mi kontrol et (toggle)
             $checkStmt = $pdo->prepare('SELECT profil_fotograf_id, kapak_fotograf_id FROM isletme_panel_medya WHERE isletme_id = ?');
             $checkStmt->execute([$businessId]);
             $currentMedia = $checkStmt->fetch(PDO::FETCH_ASSOC);
@@ -48,7 +85,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 ($slot === 'cover'   && (int)($currentMedia['kapak_fotograf_id']  ?? 0) === $photoId)
             );
             if ($isAlreadySet || $action === 'unfeature') {
-                // Kaldır (NULL yap)
                 $col = $slot === 'profile' ? 'profil_fotograf_id' : 'kapak_fotograf_id';
                 $pdo->prepare("INSERT INTO isletme_panel_medya (isletme_id, profil_fotograf_id, kapak_fotograf_id)
                                VALUES (?, ?, ?)
@@ -56,7 +92,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     ->execute([$businessId, $slot === 'profile' ? null : null, $slot === 'cover' ? null : null]);
                 businessFlash('success', $slot === 'profile' ? 'Profil fotoğrafı kaldırıldı.' : 'Kapak fotoğrafı kaldırıldı.');
             } else {
-                // Ayarla
                 $pdo->prepare('INSERT INTO isletme_panel_medya (isletme_id, profil_fotograf_id, kapak_fotograf_id)
                                VALUES (?, ?, ?)
                                ON DUPLICATE KEY UPDATE ' . ($slot === 'profile' ? 'profil_fotograf_id = VALUES(profil_fotograf_id)' : 'kapak_fotograf_id = VALUES(kapak_fotograf_id)'))
@@ -136,13 +171,13 @@ include __DIR__ . '/_header.php';
         <form method="POST" enctype="multipart/form-data" class="admin-form business-file-upload-row">
             <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="upload">
             <div class="form-group" style="flex:1;min-width:280px;">
-                <label for="photo">Yeni Fotoğraf <span class="label-sub">(JPG/PNG/WEBP, en fazla 2 MB)</span></label>
+                <label for="photo">Yeni Fotoğraf(lar) <span class="label-sub">(JPG/PNG/WEBP, dosya başı en fazla 2 MB — toplu seçim yapabilirsiniz)</span></label>
                 <div class="custom-file-box">
-                    <input id="photo" type="file" name="photo" accept="image/jpeg,image/png,image/webp" required class="custom-file-input">
+                    <input id="photo" type="file" name="photos[]" accept="image/jpeg,image/png,image/webp" multiple required class="custom-file-input">
                     <div class="custom-file-trigger">
                         <span class="file-trigger-info">
                             <i class="fa-solid fa-cloud-arrow-up file-icon"></i>
-                            <span class="file-text" data-default="Bilgisayarınızdan fotoğraf seçin...">Bilgisayarınızdan fotoğraf seçin...</span>
+                            <span class="file-text" data-default="Bilgisayarınızdan bir veya birden fazla fotoğraf seçin...">Bilgisayarınızdan bir veya birden fazla fotoğraf seçin...</span>
                         </span>
                         <span class="file-browse-btn">Gözat</span>
                     </div>

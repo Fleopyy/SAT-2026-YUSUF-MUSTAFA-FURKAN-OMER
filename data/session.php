@@ -1,5 +1,4 @@
 <?php
-// Direct TLS signal only; never trust client-supplied forwarding headers or port alone.
 if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');

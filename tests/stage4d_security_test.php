@@ -1,5 +1,4 @@
 <?php
-// CLI only. Configuration tests and a fake PDO; never loads a real driver.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../data/database_config.php';
 if (isset($argv[1])) {
@@ -9,6 +8,10 @@ if (isset($argv[1])) {
         public function __construct($dsn, $user, $password) {
             if ($GLOBALS['argv'][1] === 'failure') throw new PDOException('SENSITIVE_DRIVER_DETAIL');
             if (!str_contains($dsn, 'charset=utf8mb4')) throw new LogicException('charset');
+        }
+        public function exec($sql) {
+            if ($sql !== "SET time_zone = '+03:00'") throw new LogicException('timezone initialization');
+            return 0;
         }
         public function setAttribute($key, $value) {
             if ($key !== PDO::ATTR_ERRMODE || $value !== PDO::ERRMODE_EXCEPTION) throw new LogicException('error mode');
@@ -36,7 +39,6 @@ foreach ([[], array_replace($local, ['host'=>'localhost;dbname=other']), array_r
     try { databaseSettings($bad, $missing); } catch (RuntimeException $e) { $rejected = true; }
     check4d($rejected, 'invalid configuration fails closed');
 }
-// Fake PDO subprocess exercises actual bootstrap, including its exit path.
 foreach (['success', 'failure'] as $mode) {
     $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' ' . $mode . ' 2>&1';
     $output = shell_exec($command);

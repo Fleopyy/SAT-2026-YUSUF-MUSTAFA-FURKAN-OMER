@@ -1,5 +1,4 @@
 <?php
-// BİTİRAS — Aşama 4 Randevu Bildirimleri ve Otomatik Hatırlatma Test Paketi
 
 declare(strict_types=1);
 
@@ -26,28 +25,23 @@ function assertCondition(bool $cond, string $desc): void {
 
 echo "=== AŞAMA 4: RANDEVU BİLDİRİM VE HATIRLATMA TESTLERİ ===\n\n";
 
-// Test verileri oluştur
 $testEmailCust = 'test_cust_' . time() . '@example.com';
 $testEmailBiz = 'test_biz_' . time() . '@example.com';
 
-// 1. Müşteri oluştur
 $testPhoneCust = '0555' . substr((string)time(), -7);
 $stmt = $pdo->prepare("INSERT INTO kullanicilar (ad_soyad, eposta, telefon, sehir, sifre_hash, eposta_dogrulandi) VALUES (?, ?, ?, 'İstanbul', 'dummy_hash', 1)");
 $stmt->execute(['Test Randevu Müşterisi', $testEmailCust, $testPhoneCust]);
 $custId = (int)$pdo->lastInsertId();
 
-// 2. İşletme oluştur
 $testPhoneBiz = '0554' . substr((string)time(), -7);
 $stmt = $pdo->prepare("INSERT INTO isletmeler (isletme_adi, isletme_sahibi, eposta, telefon, sehir, ilce, tam_adres) VALUES (?, ?, ?, ?, 'İstanbul', 'Kadıköy', 'Moda Cad. No: 12')");
 $stmt->execute(['Test Randevu Berber', 'Berber Ahmet', $testEmailBiz, $testPhoneBiz]);
 $bizId = (int)$pdo->lastInsertId();
 
-// 3. Hizmet oluştur
 $stmt = $pdo->prepare("INSERT INTO hizmetler (isletme_id, hizmet_adi, sure_dakika, fiyat) VALUES (?, 'Saç Kesimi', 30, 250.00)");
 $stmt->execute([$bizId]);
 $serviceId = (int)$pdo->lastInsertId();
 
-// 4. Test Randevusu oluştur (Yarın 14:00)
 $randevuZamani = date('Y-m-d H:i:s', strtotime('+24 hours + 10 minutes'));
 $stmt = $pdo->prepare("INSERT INTO randevular (kullanici_id, isletme_id, hizmet_id, randevu_zamani, durum) VALUES (?, ?, ?, ?, 'pending')");
 $stmt->execute([$custId, $bizId, $serviceId, $randevuZamani]);
@@ -69,14 +63,11 @@ $recResult1 = recordAppointmentNotification($pdo, $aptId, 'degisiklik', $testEma
 assertCondition($recResult1 === true, 'İlk bildirim kaydı başarıyla eklendi');
 assertCondition(isAppointmentNotificationSent($pdo, $aptId, 'degisiklik'), 'Kayıt sonrası isAppointmentNotificationSent true döndü');
 
-// Aynı bildirimi tekrar kaydetmeyi dene (Unique constraint uk_randevu_bildirim kontrolü)
 $recResult2 = recordAppointmentNotification($pdo, $aptId, 'degisiklik', $testEmailCust);
 assertCondition($recResult2 === false, 'Aynı randevu ve bildirim türü ikinci kez eklenemedi (DB uk_randevu_bildirim)');
 
 echo "\n--- 3. Randevu Oluşturma Bildirimleri ---\n";
-// notifyAppointmentCreated testi
 notifyAppointmentCreated($aptId);
-// Kuyrukta bu randevuya ait mailler var mı?
 $stmtQ = $pdo->prepare("SELECT COUNT(*) FROM eposta_kuyrugu WHERE tur = 'randevu_olusturuldu' AND alici_eposta = ?");
 $stmtQ->execute([$testEmailCust]);
 $custCreatedCount = (int)$stmtQ->fetchColumn();
@@ -88,27 +79,23 @@ $bizCreatedCount = (int)$stmtQ->fetchColumn();
 assertCondition($bizCreatedCount >= 1, 'İşletmeye yeni randevu bildirimi e-postası kuyruğa eklendi');
 
 echo "\n--- 4. Randevu Durum Değişikliği Bildirimleri ---\n";
-// Onaylama bildirimi
 notifyAppointmentStatusChanged($aptId, 'confirmed', 'pending');
 $stmtQ = $pdo->prepare("SELECT COUNT(*) FROM eposta_kuyrugu WHERE tur = 'randevu_onay' AND alici_eposta = ?");
 $stmtQ->execute([$testEmailCust]);
 assertCondition((int)$stmtQ->fetchColumn() >= 1, 'Randevu onaylandığında müşteriye bildirim kuyruğa eklendi');
 
-// İptal bildirimi
 notifyAppointmentStatusChanged($aptId, 'cancelled', 'confirmed');
 $stmtQ = $pdo->prepare("SELECT COUNT(*) FROM eposta_kuyrugu WHERE tur = 'randevu_iptal' AND alici_eposta = ?");
 $stmtQ->execute([$testEmailCust]);
 assertCondition((int)$stmtQ->fetchColumn() >= 1, 'Randevu iptal edildiğinde müşteriye bildirim kuyruğa eklendi');
 assertCondition(isAppointmentNotificationSent($pdo, $aptId, 'iptal'), 'İptal bildirimi tekilleştirme tablosuna işlendi');
 
-// Aynı durum geçişi (noop kontrolü)
 $qCountBefore = (int)$pdo->query("SELECT COUNT(*) FROM eposta_kuyrugu")->fetchColumn();
 notifyAppointmentStatusChanged($aptId, 'cancelled', 'cancelled');
 $qCountAfter = (int)$pdo->query("SELECT COUNT(*) FROM eposta_kuyrugu")->fetchColumn();
 assertCondition($qCountBefore === $qCountAfter, 'Durum değişmediğinde e-posta kuyruğuna fazladan kayıt atılmadı (noop)');
 
 echo "\n--- 5. Otomatik Hatırlatma Taraması (processAppointmentReminders) ---\n";
-// Randevu zamanını 24 saat öncesi aralığına ayarla (24 saat sonra)
 $target24 = date('Y-m-d H:i:s', strtotime('+24 hours'));
 $stmt = $pdo->prepare("UPDATE randevular SET randevu_zamani = ?, durum = 'confirmed' WHERE id = ?");
 $stmt->execute([$target24, $aptId]);
@@ -117,13 +104,11 @@ $remResults1 = processAppointmentReminders();
 assertCondition(($remResults1['reminders_24h'] ?? 0) >= 1, '24 saat hatırlatması başarıyla algılandı ve kuyruğa eklendi');
 assertCondition(isAppointmentNotificationSent($pdo, $aptId, 'hatirlatma_24h'), '24 saat hatırlatması randevu_bildirim_kayitlari tablosuna işlendi');
 
-// İkinci kez çalıştırıldığında ASLA tekrar göndermemeli
 $remResults2 = processAppointmentReminders();
 $stmtR24 = $pdo->prepare("SELECT COUNT(*) FROM randevu_bildirim_kayitlari WHERE randevu_id = ? AND bildirim_turu = 'hatirlatma_24h'");
 $stmtR24->execute([$aptId]);
 assertCondition((int)$stmtR24->fetchColumn() === 1, '24 saat hatırlatması tekilleştirildi, veritabanında tam olarak 1 kayıt var');
 
-// Randevu zamanını 2 saat öncesi aralığına ayarla (90 dakika sonra)
 $target2 = date('Y-m-d H:i:s', strtotime('+90 minutes'));
 $stmt = $pdo->prepare("UPDATE randevular SET randevu_zamani = ? WHERE id = ?");
 $stmt->execute([$target2, $aptId]);
@@ -132,7 +117,6 @@ $remResults3 = processAppointmentReminders();
 assertCondition(($remResults3['reminders_2h'] ?? 0) >= 1, '2 saat müşteri hatırlatması başarıyla algılandı ve kuyruğa eklendi');
 assertCondition(($remResults3['business_reminders'] ?? 0) >= 1, 'İşletme yaklaşan randevu bildirimi başarıyla algılandı ve kuyruğa eklendi');
 
-// İkinci kez çalıştırıldığında tekrar gönderilmediğini doğrula
 $remResults4 = processAppointmentReminders();
 $stmtR2h = $pdo->prepare("SELECT COUNT(*) FROM randevu_bildirim_kayitlari WHERE randevu_id = ? AND bildirim_turu = 'hatirlatma_2h'");
 $stmtR2h->execute([$aptId]);
@@ -143,7 +127,6 @@ $stmtRbiz->execute([$aptId]);
 assertCondition((int)$stmtRbiz->fetchColumn() === 1, 'İşletme hatırlatması tekilleştirildi, veritabanında tam olarak 1 kayıt var');
 
 echo "\n--- 6. Temizlik (Cleanup) ---\n";
-// Test verilerini temizle
 $pdo->prepare("DELETE FROM randevu_bildirim_kayitlari WHERE randevu_id = ?")->execute([$aptId]);
 $pdo->prepare("DELETE FROM eposta_kuyrugu WHERE alici_eposta IN (?, ?)")->execute([$testEmailCust, $testEmailBiz]);
 $pdo->prepare("DELETE FROM randevu_ek_bilgileri WHERE randevu_id = ?")->execute([$aptId]);

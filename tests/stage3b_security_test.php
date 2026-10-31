@@ -1,5 +1,4 @@
 <?php
-// Isolated execution of production authorization and handlers; no real DB or files changed.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../data/owned_media.php';
 class Stage3Database {
@@ -45,7 +44,6 @@ eval('?>' . $auth);
 function verifyCsrfToken(): bool { return true; }
 function generateCsrfToken(): string { return 'test-token'; }
 
-// Child processes allow the real handlers to exit normally and expose side effects.
 if (($argv[1] ?? '') === 'handler') {
     [$unused, $mode, $handler, $action, $permission, $scope] = $argv;
     $pdo->permissions = explode(',', $permission);
@@ -97,7 +95,6 @@ foreach (['approve'=>'businesses.approve', 'reject'=>'businesses.reject', 'suspe
 foreach ([['business_photos.view','allowed',false], ['business_photos.upload','allowed',false], ['business_photos.delete','denied',false], ['business_photos.delete','allowed',true]] as [$permission,$scope,$allowed]) {
     $out = shell_exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . " handler media delete $permission $scope");
     preg_match('/RESULT:(.*)/', $out ?? '', $match); $result = json_decode($match[1] ?? '', true);
-    // Authorized request still cannot delete the double's non-upload/missing file.
     check3(is_array($result) && ($allowed ? $result['writes'] === 0 : ($result['status'] === 403 && $result['writes'] === 0)), "media $permission $scope verifies stored business and rejects invalid file");
 }
 foreach ([['settings.view',false], ['content.manage',false], ['settings.edit',true]] as [$permission,$allowed]) {
@@ -105,7 +102,6 @@ foreach ([['settings.view',false], ['content.manage',false], ['settings.edit',tr
     preg_match('/RESULT:(.*)/', $out ?? '', $match); $result = json_decode($match[1] ?? '', true);
     check3(is_array($result) && ($allowed ? $result['writes'] > 0 : ($result['status'] === 403 && $result['writes'] === 0)), "settings $permission side effects");
 }
-// Run page query construction up to the presentation include, including counts and details.
 $pdo->permissions = ['businesses.view', 'businesses.view_details', 'business_photos.view', 'settings.view'];
 $_GET = ['detail'=>7];
 foreach (['applications', 'media'] as $page) {

@@ -2,7 +2,7 @@
 
 require_once __DIR__ . '/../includes/auth.php';
 
-$admin       = requirePermission('customers.view');
+$admin       = requirePermission('users.view');
 $currentPage = 'customers';
 $pageTitle   = 'Müşteriler';
 $pageSubtitle= 'Sisteme kayıtlı müşterileri ve randevu geçmişlerini inceleyin';
@@ -14,12 +14,9 @@ $page       = max(1, (int)($_GET['sayfa'] ?? 1));
 $perPage    = 50;
 $offset     = ($page - 1) * $perPage;
 
-/* ── Müşteri detay görünümü ── */
 $viewCustomer         = null;
 $customerAppointments = [];
 
-// Reuse one bound scope for every customer/appointment query. null and []
-// are intentionally resolved by the existing fail-closed scope helper.
 $scopeParams = [];
 $appointmentScope = currentBusinessScopeSql('r.isletme_id', $scopeParams);
 $customerScope = $appointmentScope === '1=1' ? '1=1' : "EXISTS (SELECT 1 FROM randevular r WHERE r.kullanici_id = k.id AND {$appointmentScope})";
@@ -42,7 +39,6 @@ if ($viewId > 0) {
     }
 }
 
-/* ── Şehir listesi (filtre dropdown) ── */
 $cityList = [];
 try {
     $cityStmt = $pdo->prepare("SELECT DISTINCT k.sehir FROM kullanicilar k WHERE k.sehir <> '' AND {$customerScope} ORDER BY k.sehir");
@@ -50,7 +46,6 @@ try {
     $cityList = $cityStmt->fetchAll(PDO::FETCH_COLUMN);
 } catch (Exception $e) {}
 
-/* ── WHERE koşulları ── */
 $where  = [$customerScope];
 $params = $scopeParams;
 
@@ -66,7 +61,6 @@ if (!empty($filterCity)) {
 
 $whereSql = !empty($where) ? "WHERE " . implode(" AND ", $where) : "";
 
-/* ── Toplam kayıt sayısı ── */
 $totalCount = 0;
 try {
     $countStmt = $pdo->prepare("SELECT COUNT(*) FROM kullanicilar k {$whereSql}");
@@ -77,7 +71,6 @@ try {
 $totalPages = max(1, (int)ceil($totalCount / $perPage));
 if ($page > $totalPages) { $page = $totalPages; $offset = ($page - 1) * $perPage; }
 
-/* ── Sayfalı sorgu ── */
 $sql = "SELECT k.*,
         (SELECT COUNT(*) FROM randevular r WHERE r.kullanici_id = k.id AND {$appointmentScope}) AS toplam_randevu,
         (SELECT COUNT(*) FROM randevular r WHERE r.kullanici_id = k.id AND {$appointmentScope} AND r.durum = 'completed') AS tamamlanan_randevu
@@ -93,7 +86,6 @@ try {
     $customers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
-/* ── Sayfalama URL yardımcısı ── */
 function pageUrl(int $p, string $q, string $sehir): string {
     $args = ['sayfa' => $p];
     if ($q     !== '') $args['q']     = $q;

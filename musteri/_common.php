@@ -5,16 +5,17 @@ require_once dirname(__DIR__) . '/data/customer_auth_service.php';
 
 $customerId = filter_var($_SESSION['user_id'] ?? null, FILTER_VALIDATE_INT);
 if (($_SESSION['user_role'] ?? '') !== 'customer' || !$customerId) {
-    header('Location: /');
+    $redirectTarget = $_SERVER['REQUEST_URI'] ?? '/musteri/hesabim.php';
+    header('Location: /login.php?redirect=' . urlencode($redirectTarget) . '&role=customer');
     exit;
 }
 
-$customerStatement = $pdo->prepare('SELECT id, ad_soyad, telefon, eposta, eposta_dogrulandi FROM kullanicilar WHERE id = ?');
+$customerStatement = $pdo->prepare('SELECT id, ad_soyad, telefon, eposta, sehir, eposta_dogrulandi FROM kullanicilar WHERE id = ?');
 $customerStatement->execute([$customerId]);
 $customer = $customerStatement->fetch(PDO::FETCH_ASSOC);
 if (!$customer) {
     unset($_SESSION['user_id'], $_SESSION['user_name'], $_SESSION['user_role']);
-    header('Location: /');
+    header('Location: /login.php?role=customer');
     exit;
 }
 
@@ -53,7 +54,7 @@ function customerCreateAppointmentReview(PDO $pdo, int $customerId, int $appoint
 }
 
 function customerUploadPhoto(array $file, int $customerId): string {
-    if ($customerId < 1) throw new RuntimeException('Ge?ersiz kullan?c?.');
+    if ($customerId < 1) throw new RuntimeException('Geçersiz kullanıcı.');
     return storeUploadImage($file, 5 * 1024 * 1024, 'uploads/musteri/' . $customerId);
 }
 

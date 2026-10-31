@@ -35,7 +35,6 @@ try {
     $photos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
-/* ── Fotoğrafları işletme bazında grupla ── */
 $grouped = [];
 foreach ($photos as $photo) {
     $bizId = (int)$photo['isletme_id'];
@@ -190,7 +189,7 @@ include __DIR__ . '/../includes/header.php';
                                             <?= date('d.m.Y', strtotime($photo['olusturulma_tarihi'])) ?>
                                         </small>
                                         <?php if (canCurrentUser('business_photos.delete')): ?>
-                                        <form method="POST" action="/admin/actions/media_action.php" style="margin:0;" onsubmit="return confirm('Bu fotoğrafı silmek istediğinize emin misiniz?');">
+                                        <form method="POST" action="/admin/actions/media_action.php" style="margin:0;" onsubmit="return adminConfirmForm(event, this, 'Bu fotoğrafı silmek istediğinize emin misiniz?');">
                                             <input type="hidden" name="csrf_token" value="<?= e($csrfToken) ?>">
                                             <input type="hidden" name="action" value="delete">
                                             <input type="hidden" name="photo_id" value="<?= $photo['id'] ?>">
@@ -203,6 +202,15 @@ include __DIR__ . '/../includes/header.php';
                                 </div>
                             <?php endforeach; ?>
                         </div>
+<!-- Upload Form -->
+<div style="margin-top:20px;padding:16px;background:#F9FAFB;border:1px solid #E2E8F0;border-radius:8px;">
+    <form method="POST" action="/admin/actions/media_upload.php" enctype="multipart/form-data" style="display:flex;gap:12px;align-items:center;">
+        <input type="hidden" name="csrf_token" value="<?php echo e($csrfToken) ?>">
+        <input type="hidden" name="business_id" value="<?php echo e($bizId) ?>">
+        <input type="file" name="photos[]" multiple accept="image/*" required style="flex:1;">
+        <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Fotoğrafları Yükle</button>
+    </form>
+</div>
                     </div>
                 </div>
             <?php endforeach; ?>

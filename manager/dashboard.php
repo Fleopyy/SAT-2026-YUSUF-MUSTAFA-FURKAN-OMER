@@ -58,12 +58,20 @@ if (canCurrentUser('appointments.view')) {
 
                                                         
 if (canCurrentUser('users.view')) {
-    $stats['total_customers'] = (int)$pdo->query("SELECT COUNT(*) FROM kullanicilar")->fetchColumn();
+    $counterParams = [];
+    $counterScope = currentBusinessScopeSql('r.isletme_id', $counterParams);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM kullanicilar k WHERE " . ($counterScope === '1=1' ? '1=1' : "EXISTS (SELECT 1 FROM randevular r WHERE r.kullanici_id = k.id AND {$counterScope})"));
+    $stmt->execute($counterParams);
+    $stats['total_customers'] = (int)$stmt->fetchColumn();
 }
 
                                                                
 if (canCurrentUser('reviews.view')) {
-    $stats['total_reviews'] = (int)$pdo->query("SELECT COUNT(*) FROM degerlendirmeler")->fetchColumn();
+    $counterParams = [];
+    $counterScope = currentBusinessScopeSql('isletme_id', $counterParams);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM degerlendirmeler WHERE {$counterScope}");
+    $stmt->execute($counterParams);
+    $stats['total_reviews'] = (int)$stmt->fetchColumn();
 }
 
                                                                        
@@ -207,10 +215,10 @@ include dirname(__DIR__) . '/admin/includes/header.php';
                 </a>
             <?php endif; ?>
 
-            <?php if (canCurrentUser('reports.view')): ?>
-                <a href="/admin/pages/reports.php" class="btn btn-secondary">
+            <?php if (canCurrentUser('appointments.view')): ?>
+                <a href="/admin/pages/appointments.php" class="btn btn-secondary">
                     <i class="fa-solid fa-chart-pie" style="color:var(--admin-accent);"></i>
-                    <span>Raporlar & Analiz</span>
+                    <span>Randevular</span>
                 </a>
             <?php endif; ?>
         </div>

@@ -53,14 +53,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             bindPasswordSession('user', $newHash);
             session_regenerate_id(true);
 
-            // Güvenlik bildirimi e-postası gönder
             sendPasswordChangedNotification($customerId, $customer['eposta'], $customer['ad_soyad']);
 
             customerFlash('success', 'Şifren güncellendi.');
         } elseif ($action === 'request_code' || $action === 'resend_code') {
-            sendCustomerVerificationEmail($customerId, $customer['eposta'], $customer['ad_soyad']);
-            $_SESSION['musteri_kod_gonderildi'] = true;
-            customerFlash('info', '6 haneli doğrulama kodunuz ' . htmlspecialchars($customer['eposta']) . ' adresinize gönderildi.');
+            $accepted = sendCustomerVerificationEmail($customerId, $customer['eposta'], $customer['ad_soyad']);
+            $_SESSION['musteri_kod_gonderildi'] = $accepted;
+            customerFlash($accepted ? 'info' : 'danger', $accepted ? 'Kod gonderim icin kabul edildi; teslimat henuz dogrulanmadi.' : 'Kod gonderilemedi. Lutfen daha sonra yeniden deneyin.');
         } elseif ($action === 'verify_code') {
             $code = is_string($_POST['verification_code'] ?? null) ? trim($_POST['verification_code']) : '';
             $result = verifyCustomerEmailCode($customerId, $code);
@@ -70,6 +69,36 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             } else {
                 throw new RuntimeException($result['message']);
             }
+        } elseif ($action === 'profile') {
+            $fullName = trim(is_string($_POST['ad_soyad'] ?? null) ? $_POST['ad_soyad'] : '');
+            $phone = trim(is_string($_POST['telefon'] ?? null) ? $_POST['telefon'] : '');
+            $city = trim(is_string($_POST['sehir'] ?? null) ? $_POST['sehir'] : '');
+
+            if (empty($fullName) || empty($phone)) {
+                throw new RuntimeException('Ad Soyad ve Telefon alanları zorunludur.');
+            }
+            if (mb_strlen($fullName, 'UTF-8') > 150) {
+                throw new RuntimeException('Ad Soyad en fazla 150 karakter olabilir.');
+            }
+            $cleanPhone = preg_replace('/[^\d]/', '', $phone);
+            if (strlen($cleanPhone) < 10 || strlen($cleanPhone) > 15) {
+                throw new RuntimeException('Lütfen geçerli bir telefon numarası girin.');
+            }
+            $stmtCheck = $pdo->prepare("SELECT id FROM kullanicilar WHERE telefon = ? AND id != ?");
+            $stmtCheck->execute([$phone, $customerId]);
+            if ($stmtCheck->fetchColumn()) {
+                throw new RuntimeException('Bu telefon numarası başka bir kullanıcı tarafından kullanılmaktadır.');
+            }
+
+            $stmtUpd = $pdo->prepare("UPDATE kullanicilar SET ad_soyad = ?, telefon = ?, sehir = ? WHERE id = ?");
+            $stmtUpd->execute([$fullName, $phone, $city, $customerId]);
+
+            $_SESSION['user_name'] = $fullName;
+            $customer['ad_soyad'] = $fullName;
+            $customer['telefon'] = $phone;
+            $customer['sehir'] = $city;
+
+            customerFlash('success', 'Profil bilgileriniz başarıyla güncellendi.');
         } else {
             throw new RuntimeException('İşlem tanınmadı.');
         }
@@ -187,13 +216,41 @@ include __DIR__ . '/_header.php';
 </section>
 
 <section class="customer-card p-4 p-md-5 mb-4">
-    <h2 class="h5 fw-bold mb-3">Şifre değiştir</h2>
+    <h2 class="h5 fw-bold mb-3"><i class="fa-solid fa-user-pen me-2" style="color:#B9813E;"></i>Profil Bilgilerimi Güncelle</h2>
+    <form method="POST" class="row g-3">
+        <input type="hidden" name="csrf_token" value="<?= customerEscape(generateCsrfToken()) ?>">
+        <input type="hidden" name="action" value="profile">
+        <div class="col-md-6">
+            <label class="form-label fw-semibold" for="custFullName">Ad Soyad</label>
+            <input class="form-control" type="text" name="ad_soyad" id="custFullName" required maxlength="150" value="<?= customerEscape($customer['ad_soyad']) ?>">
+        </div>
+        <div class="col-md-6">
+            <label class="form-label fw-semibold" for="custPhone">Telefon Numarası</label>
+            <input class="form-control" type="tel" name="telefon" id="custPhone" required maxlength="25" value="<?= customerEscape($customer['telefon']) ?>">
+        </div>
+        <div class="col-md-6">
+            <label class="form-label fw-semibold" for="custCity">Şehir</label>
+            <input class="form-control" type="text" name="sehir" id="custCity" maxlength="100" placeholder="Örn: İstanbul, Ankara, İzmir..." value="<?= customerEscape($customer['sehir'] ?? '') ?>">
+        </div>
+        <div class="col-md-6">
+            <label class="form-label fw-semibold" for="custEmailReadOnly">E-Posta Adresi</label>
+            <input class="form-control bg-light" type="email" id="custEmailReadOnly" disabled value="<?= customerEscape($customer['eposta']) ?>">
+            <div class="form-text small">E-posta adresi güvenlik sebebiyle doğrudan değiştirilemez.</div>
+        </div>
+        <div class="col-12 mt-3">
+            <button class="customer-button" type="submit"><i class="fa-solid fa-floppy-disk me-1"></i> Bilgileri Kaydet</button>
+        </div>
+    </form>
+</section>
+
+<section class="customer-card p-4 p-md-5 mb-4">
+    <h2 class="h5 fw-bold mb-3"><i class="fa-solid fa-lock me-2" style="color:#B9813E;"></i>Şifre değiştir</h2>
     <form method="POST" class="row g-3">
         <input type="hidden" name="csrf_token" value="<?= customerEscape(generateCsrfToken()) ?>">
         <input type="hidden" name="action" value="password">
         <div class="col-md-4"><label class="form-label" for="currentPassword">Mevcut şifre</label><input class="form-control" type="password" name="current_password" id="currentPassword" autocomplete="current-password" required></div>
-        <div class="col-md-4"><label class="form-label" for="newPassword">Yeni şifre</label><input class="form-control" type="password" name="new_password" id="newPassword" minlength="8" autocomplete="new-password" required></div>
-        <div class="col-md-4"><label class="form-label" for="confirmPassword">Yeni şifre (tekrar)</label><input class="form-control" type="password" name="confirm_password" id="confirmPassword" minlength="8" autocomplete="new-password" required></div>
+        <div class="col-md-4"><label class="form-label" for="newPassword">Yeni şifre</label><input class="form-control" type="password" name="new_password" id="newPassword" minlength="10" maxlength="72" autocomplete="new-password" required><div class="form-text small">En az 10 karakter uzunluğunda olmalıdır.</div></div>
+        <div class="col-md-4"><label class="form-label" for="confirmPassword">Yeni şifre (tekrar)</label><input class="form-control" type="password" name="confirm_password" id="confirmPassword" minlength="10" maxlength="72" autocomplete="new-password" required></div>
         <div class="col-12"><button class="customer-button" type="submit">Şifreyi güncelle</button></div>
     </form>
 </section>

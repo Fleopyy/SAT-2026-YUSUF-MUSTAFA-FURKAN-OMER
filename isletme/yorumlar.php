@@ -130,7 +130,7 @@ include __DIR__ . '/_header.php';
                             <button class="btn-admin primary sm">Yanıtı kaydet</button>
                         </form>
                     </details>
-                    <?php if ($review['cevap']): ?><form method="POST" onsubmit="return confirm('İşletme yanıtı silinsin mi?')"><input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="delete_reply"><input type="hidden" name="review_id" value="<?= (int)$review['id'] ?>"><button class="btn-admin danger sm">Yanıtı sil</button></form><?php endif; ?>
+                    <?php if ($review['cevap']): ?><form method="POST" onsubmit="return adminConfirmForm(event, this, 'İşletme yanıtı silinsin mi?');"><input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="delete_reply"><input type="hidden" name="review_id" value="<?= (int)$review['id'] ?>"><button class="btn-admin danger sm">Yanıtı sil</button></form><?php endif; ?>
                     <details><summary class="btn-admin outline sm">Moderatöre bildir</summary>
                         <form method="POST" class="admin-form" style="min-width:260px;padding:12px;">
                             <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="report"><input type="hidden" name="review_id" value="<?= (int)$review['id'] ?>">

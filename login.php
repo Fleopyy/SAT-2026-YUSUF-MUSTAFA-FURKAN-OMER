@@ -64,10 +64,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $city            = trim($_POST['sehir'] ?? '');
         $password        = $_POST['sifre'] ?? $_POST['password'] ?? '';
         $passwordConfirm = $_POST['sifre_tekrar'] ?? '';
+        $kvkkOnay        = isset($_POST['kvkk_onay']) && (string)$_POST['kvkk_onay'] === '1';
+        $pazarlamaOnay   = (isset($_POST['pazarlama_onay']) && (string)$_POST['pazarlama_onay'] === '1') ? 1 : 0;
+
+        if (!$kvkkOnay) {
+            $_SESSION['mesaj'] = "Kayıt işlemini tamamlamak için lütfen KVKK Aydınlatma Metni'ni okuyup onaylayın.";
+            $_SESSION['mesaj_turu'] = "danger";
+            recordLoginAttempt($ip, $email ?: $phone, false);
+            header("Location: index.php");
+            exit;
+        }
 
         if (!empty($fullName) && !empty($phone) && !empty($email) && !empty($city) && !empty($password)) {
             if (!validNewPassword($password) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $_SESSION['mesaj'] = 'Ge?erli e-posta ve 10-72 bayt uzunlu?unda ?ifre gereklidir.';
+                $_SESSION['mesaj'] = 'Geçerli bir e-posta adresi ve en az 10 karakter uzunluğunda bir şifre gereklidir.';
                 $_SESSION['mesaj_turu'] = 'danger';
             } elseif ($password !== $passwordConfirm) {
                 $_SESSION['mesaj'] = "Girdiğiniz şifreler birbiriyle eşleşmiyor. Lütfen tekrar deneyin.";
@@ -77,24 +87,28 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 $check->execute([$email, $phone]);
 
                 if ($check->fetch()) {
-                    $_SESSION['mesaj'] = 'Kay?t tamamlanamad?. Bilgilerinizi kontrol edin veya destek ile ileti?ime ge?in.';
+                    $_SESSION['mesaj'] = 'Bu e-posta adresi veya telefon numarası sistemde zaten kayıtlıdır. Lütfen bilgilerinizi kontrol edin veya giriş yapın.';
                     $_SESSION['mesaj_turu'] = "danger";
                 } else {
                     $hash = password_hash($password, PASSWORD_DEFAULT);
-                    $stmt = $pdo->prepare("INSERT INTO kullanicilar (ad_soyad, telefon, eposta, sehir, sifre_hash, eposta_dogrulandi) VALUES (?, ?, ?, ?, ?, 0)");
-                    $stmt->execute([$fullName, $phone, $email, $city, $hash]);
+                    $stmt = $pdo->prepare("INSERT INTO kullanicilar (ad_soyad, telefon, eposta, sehir, sifre_hash, eposta_dogrulandi, kvkk_onay_tarihi, pazarlama_onay) VALUES (?, ?, ?, ?, ?, 0, NOW(), ?)");
+                    $stmt->execute([$fullName, $phone, $email, $city, $hash, $pazarlamaOnay]);
                     $newUserId = (int)$pdo->lastInsertId();
 
-                    // Kayıt sonrası otomatik e-posta doğrulama kodu gönder
-                    sendCustomerVerificationEmail($newUserId, $email, $fullName);
+                    try {
+                        $stmtLog = $pdo->prepare("INSERT INTO islem_gunlukleri (islem_turu, hedef_turu, hedef_id, detay, ip_adresi) VALUES ('kvkk_onay', 'kullanici', ?, ?, ?)");
+                        $stmtLog->execute([$newUserId, "Müşteri kaydında KVKK metni onaylandı. Pazarlama izni: " . ($pazarlamaOnay ? 'Evet' : 'Hayır'), $ip]);
+                    } catch (Throwable $e) {}
+
+                    $verificationAccepted = sendCustomerVerificationEmail($newUserId, $email, $fullName);
 
                     renewAuthenticatedSession('user', $hash);
                     $attemptSuccessful = true;
                     $_SESSION['user_id'] = $newUserId;
                     $_SESSION['user_name'] = $fullName;
                     $_SESSION['user_role'] = 'customer';
-                    $_SESSION['mesaj'] = "Kaydınız başarıyla oluşturuldu! " . htmlspecialchars($email) . " adresinize 6 haneli doğrulama kodu gönderildi. Lütfen e-postanızı kontrol ederek hesabınızı doğrulayın.";
-                    $_SESSION['mesaj_turu'] = "success";
+                    $_SESSION['mesaj'] = $verificationAccepted ? 'Kayit olusturuldu. Ileti gonderim icin kabul edildi; teslimat henuz dogrulanmadi.' : 'Kayit olusturuldu ancak ileti gonderilemedi. Hesabim sayfasindan yeniden kod isteyin.';
+                    $_SESSION['mesaj_turu'] = $verificationAccepted ? 'info' : 'warning';
                 }
             }
         } else {
@@ -128,33 +142,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     $_SESSION['mesaj'] = "İşletme hesabınız askıya alınmıştır. Lütfen destek ekibi ile iletişime geçin.";
                     $_SESSION['mesaj_turu'] = "danger";
                 } else {
-                    $risk = evaluateBarberLoginRisk($barber);
-                    if ($risk['requires_2fa']) {
-                        $_SESSION['2fa_pending'] = [
-                            'type'    => 'barber',
-                            'user_id' => (int)$barber['id'],
-                            'rol'     => 'barber',
-                            'name'    => $barber['isletme_adi'],
-                            'email'   => $barber['eposta'],
-                            'hash'    => $barber['sifre_hash'],
-                            'reason'  => $risk['reason'],
-                            'expires' => time() + 300,
-                        ];
-                        sendBarber2faEmail((int)$barber['id'], $barber['eposta'], $barber['isletme_adi']);
-                        recordLoginAttempt($ip, $loginVal, true);
-                        header("Location: /isletme/giris.php?step=2fa");
-                        exit;
-                    } else {
-                        renewAuthenticatedSession('barber', $barber['sifre_hash']);
-                        $attemptSuccessful = true;
-                        $_SESSION['barber_id'] = $barber['id'];
-                        $_SESSION['barber_role'] = 'barber';
-                        $_SESSION['barber_name'] = $barber['isletme_adi'];
-                        $_SESSION['user_role'] = 'barber';
-                        $pdo->prepare("UPDATE isletmeler SET son_giris = NOW() WHERE id = ?")->execute([$barber['id']]);
-                        $_SESSION['mesaj'] = "Giriş başarılı! Hoş geldiniz, " . htmlspecialchars($barber['isletme_adi']) . ".";
-                        $_SESSION['mesaj_turu'] = "success";
-                    }
+                    completeBarberPasswordLogin($barber, $loginVal, '/barber/dashboard');
                 }
             } else {
                 $_SESSION['mesaj'] = "Hatalı işletme bilgisi veya şifre girdiniz!";
@@ -179,10 +167,20 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $tamAdres        = trim($_POST['tam_adres'] ?? $_POST['address'] ?? '');
         $password        = $_POST['sifre'] ?? $_POST['password'] ?? '';
         $passwordConfirm = $_POST['sifre_tekrar'] ?? '';
+        $kvkkOnay        = isset($_POST['kvkk_onay']) && (string)$_POST['kvkk_onay'] === '1';
+        $pazarlamaOnay   = (isset($_POST['pazarlama_onay']) && (string)$_POST['pazarlama_onay'] === '1') ? 1 : 0;
+
+        if (!$kvkkOnay) {
+            $_SESSION['mesaj'] = "İşletme başvurunuzu tamamlamak için lütfen KVKK Aydınlatma Metni'ni okuyup onaylayın.";
+            $_SESSION['mesaj_turu'] = "danger";
+            recordLoginAttempt($ip, $email ?: $phone, false);
+            header("Location: index.php");
+            exit;
+        }
 
         if (!empty($ownerName) && !empty($shopName) && !empty($phone) && !empty($password)) {
             if (!validNewPassword($password) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $_SESSION['mesaj'] = 'Ge?erli e-posta ve 10-72 bayt uzunlu?unda ?ifre gereklidir.';
+                $_SESSION['mesaj'] = 'Geçerli bir e-posta adresi ve en az 10 karakter uzunluğunda bir şifre gereklidir.';
                 $_SESSION['mesaj_turu'] = 'danger';
             } elseif ($password !== $passwordConfirm) {
                 $_SESSION['mesaj'] = "Girdiğiniz şifreler birbiriyle eşleşmiyor. Lütfen tekrar deneyin.";
@@ -193,14 +191,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 $check->execute([$email, $phone]);
 
                 if ($check->fetch()) {
-                    $_SESSION['mesaj'] = 'Kay?t tamamlanamad?. Bilgilerinizi kontrol edin veya destek ile ileti?ime ge?in.';
+                    $_SESSION['mesaj'] = 'Bu e-posta adresi veya telefon numarası ile kayıtlı bir işletme zaten mevcut. Lütfen bilgilerinizi kontrol edin veya giriş yapın.';
                     $_SESSION['mesaj_turu'] = "danger";
                 } else {
                     $hash = password_hash($password, PASSWORD_DEFAULT);
                                                                                         
-                    $stmt = $pdo->prepare("INSERT INTO isletmeler (isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce, tam_adres, sifre_hash, durum) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')");
-                    $stmt->execute([$ownerName, $shopName, $phone, $email, $city, $district, $tamAdres, $hash]);
+                    $stmt = $pdo->prepare("INSERT INTO isletmeler (isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce, tam_adres, sifre_hash, durum, kvkk_onay_tarihi, pazarlama_onay) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), ?)");
+                    $stmt->execute([$ownerName, $shopName, $phone, $email, $city, $district, $tamAdres, $hash, $pazarlamaOnay]);
                     $newBusinessId = (int)$pdo->lastInsertId();
+
+                    try {
+                        $stmtLog = $pdo->prepare("INSERT INTO islem_gunlukleri (islem_turu, hedef_turu, hedef_id, detay, ip_adresi) VALUES ('kvkk_onay', 'isletme', ?, ?, ?)");
+                        $stmtLog->execute([$newBusinessId, "İşletme başvurusunda KVKK metni onaylandı. Pazarlama izni: " . ($pazarlamaOnay ? 'Evet' : 'Hayır'), $ip]);
+                    } catch (Throwable $e) {}
                     $attemptSuccessful = true;
 
                     try {
@@ -384,7 +387,7 @@ if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
                                                 class="form-label fw-bold text-xs text-uppercase text-muted">Şifre
                                                 Belirleyin</label>
                                             <div class="input-group">
-                                                <input type="password" id="custRegPass" name="sifre" required minlength="10" maxlength="72" title="?ifre 10-72 bayt uzunlu?unda olmal?d?r"
+                                                <input type="password" id="custRegPass" name="sifre" required minlength="10" maxlength="72" title="Şifre en az 10 karakter uzunluğunda olmalıdır"
                                                     placeholder="••••••••" class="form-control form-control-lg fs-6"
                                                     autocomplete="new-password">
                                                 <button class="btn btn-outline-secondary" type="button"
@@ -410,6 +413,24 @@ if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
                                                 </button>
                                             </div>
                                             <div id="passMatchMsg" class="mt-1" style="font-size:12px;min-height:16px;"></div>
+                                        </div>
+
+                                        <div class="mb-3 mt-3 p-3 rounded-3" style="background:#F8FAFC;border:1.5px solid #E2E8F0;">
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" name="kvkk_onay" id="custKvkkOnay" value="1" required style="cursor:pointer;width:18px;height:18px;accent-color:var(--accent);">
+                                                <label class="form-check-label text-xs text-muted ms-1" for="custKvkkOnay" style="cursor:pointer;line-height:1.45;">
+                                                    <a href="/kvkk.php" target="_blank" class="fw-bold text-dark text-decoration-underline" style="color:var(--accent) !important;">KVKK Aydınlatma Metni</a>'ni okudum ve kişisel verilerimin işlenmesi hakkında bilgilendirildim. <span class="text-danger fw-bold">*</span>
+                                                </label>
+                                                <div id="custKvkkError" class="text-danger mt-1 fw-semibold" style="font-size:11.5px;display:none;">
+                                                    <i class="fa-solid fa-circle-exclamation me-1"></i>Lütfen devam etmek için KVKK metnini onaylayın.
+                                                </div>
+                                            </div>
+                                            <div class="form-check m-0">
+                                                <input class="form-check-input" type="checkbox" name="pazarlama_onay" id="custPazarlamaOnay" value="1" style="cursor:pointer;width:17px;height:17px;accent-color:var(--accent);">
+                                                <label class="form-check-label text-xs text-muted ms-1" for="custPazarlamaOnay" style="cursor:pointer;line-height:1.45;">
+                                                    Kampanya, indirim ve duyurulardan haberdar olmak için ticari elektronik ileti almayı kabul ediyorum. <span class="badge bg-light text-secondary border" style="font-size:10px;">İsteğe Bağlı</span>
+                                                </label>
+                                            </div>
                                         </div>
 
                                         <button type="submit" id="custRegSubmitBtn" class="btn btn-primary btn-lg w-100 fs-6 py-3 mt-2">
@@ -439,6 +460,17 @@ if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
                                         confirm.addEventListener('input', checkMatch);
 
                                         document.getElementById('formCustomerRegister').addEventListener('submit', function(e){
+                                            var kvkkCb = document.getElementById('custKvkkOnay');
+                                            var kvkkErr = document.getElementById('custKvkkError');
+                                            if (kvkkCb && !kvkkCb.checked) {
+                                                e.preventDefault();
+                                                if (kvkkErr) kvkkErr.style.display = 'block';
+                                                kvkkCb.focus();
+                                                return;
+                                            } else if (kvkkErr) {
+                                                kvkkErr.style.display = 'none';
+                                            }
+
                                             if (pass.value !== confirm.value) {
                                                 e.preventDefault();
                                                 confirm.focus();
@@ -859,7 +891,7 @@ if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
                                                 class="form-label fw-bold text-xs text-uppercase text-muted">Şifre
                                                 Belirleyin</label>
                                             <div class="input-group">
-                                                <input type="password" id="barberPass" name="sifre" required minlength="10" maxlength="72" title="?ifre 10-72 bayt uzunlu?unda olmal?d?r"
+                                                <input type="password" id="barberPass" name="sifre" required minlength="10" maxlength="72" title="Şifre en az 10 karakter uzunluğunda olmalıdır"
                                                     placeholder="••••••••" class="form-control"
                                                     autocomplete="new-password">
                                                 <button class="btn btn-outline-secondary" type="button"
@@ -885,6 +917,24 @@ if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
                                                 </button>
                                             </div>
                                             <div id="barberPassMatchMsg" class="mt-1" style="font-size:12px;min-height:16px;"></div>
+                                        </div>
+
+                                        <div class="mb-3 mt-3 p-3 rounded-3" style="background:#F8FAFC;border:1.5px solid #E2E8F0;">
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="checkbox" name="kvkk_onay" id="barberKvkkOnay" value="1" required style="cursor:pointer;width:18px;height:18px;accent-color:var(--accent);">
+                                                <label class="form-check-label text-xs text-muted ms-1" for="barberKvkkOnay" style="cursor:pointer;line-height:1.45;">
+                                                    <a href="/kvkk.php" target="_blank" class="fw-bold text-dark text-decoration-underline" style="color:var(--accent) !important;">KVKK Aydınlatma Metni</a>'ni okudum ve kişisel verilerimin işlenmesi hakkında bilgilendirildim. <span class="text-danger fw-bold">*</span>
+                                                </label>
+                                                <div id="barberKvkkError" class="text-danger mt-1 fw-semibold" style="font-size:11.5px;display:none;">
+                                                    <i class="fa-solid fa-circle-exclamation me-1"></i>Lütfen devam etmek için KVKK metnini onaylayın.
+                                                </div>
+                                            </div>
+                                            <div class="form-check m-0">
+                                                <input class="form-check-input" type="checkbox" name="pazarlama_onay" id="barberPazarlamaOnay" value="1" style="cursor:pointer;width:17px;height:17px;accent-color:var(--accent);">
+                                                <label class="form-check-label text-xs text-muted ms-1" for="barberPazarlamaOnay" style="cursor:pointer;line-height:1.45;">
+                                                    İşletmem için özel avantaj ve duyurular hakkında ticari ileti almayı kabul ediyorum. <span class="badge bg-light text-secondary border" style="font-size:10px;">İsteğe Bağlı</span>
+                                                </label>
+                                            </div>
                                         </div>
 
                                         <button type="submit" id="barberRegSubmitBtn" class="btn btn-dark btn-lg w-100 fs-6 py-3 mt-2">
@@ -917,6 +967,17 @@ if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
                                         var form = document.getElementById('formBarberRegister');
                                         if (form) {
                                             form.addEventListener('submit', function(e){
+                                                var kvkkCb = document.getElementById('barberKvkkOnay');
+                                                var kvkkErr = document.getElementById('barberKvkkError');
+                                                if (kvkkCb && !kvkkCb.checked) {
+                                                    e.preventDefault();
+                                                    if (kvkkErr) kvkkErr.style.display = 'block';
+                                                    kvkkCb.focus();
+                                                    return;
+                                                } else if (kvkkErr) {
+                                                    kvkkErr.style.display = 'none';
+                                                }
+
                                                 if (pass.value !== confirm.value) {
                                                     e.preventDefault();
                                                     confirm.focus();

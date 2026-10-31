@@ -1,5 +1,4 @@
 <?php
-// Maintenance and test tools must never run through HTTP.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -110,9 +109,9 @@ try {
     $galleryMarkup = $galleryStart !== false && $galleryEnd !== false
         ? substr($profileOutput, $galleryStart, $galleryEnd - $galleryStart)
         : '';
-    $featuredPhotosExcludedFromGallery = strpos($galleryMarkup, 'gallery-test.jpg') !== false
-        && strpos($galleryMarkup, 'profile-test.jpg') === false
-        && strpos($galleryMarkup, 'cover-test.jpg') === false;
+    $featuredPhotosIncludedInGallery = strpos($galleryMarkup, 'gallery-test.jpg') !== false
+        && strpos($galleryMarkup, 'profile-test.jpg') !== false
+        && strpos($galleryMarkup, 'cover-test.jpg') !== false;
 
     $start = $appointmentDate . ' 10:00';
     [$available, $end] = businessCanBook($pdo, $businessId, $employeeId, $serviceId, $start);
@@ -172,7 +171,7 @@ try {
         'Booking wizard includes date and selectable time slots' => $bookingWizardIncludesTimeGrid,
         'Owner time slots use business hours' => $ownerSlotsUseBusinessHours,
         'Employee time slots use employee schedule' => $employeeSlotsRespectEmployeeHours,
-        'Profile and cover photos are excluded from public gallery' => $featuredPhotosExcludedFromGallery,
+        'Profile and cover photos are included in public gallery' => $featuredPhotosIncludedInGallery,
         'Owner and hours are hidden when no schedule is configured' => $unconfiguredOwnerIsHidden,
         'Valid slot is available with calculated end time' => $validSlotAccepted,
         'Slot outside business hours is rejected' => !$outsideHoursAvailable,

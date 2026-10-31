@@ -1,7 +1,4 @@
 <?php
-   
-                                                                                                         
-   
 
 require_once __DIR__ . '/../includes/auth.php';
 
@@ -27,7 +24,6 @@ if (!$businessId) {
     exit;
 }
 
-                       
 $stmt = $pdo->prepare("SELECT * FROM isletmeler WHERE id = ?");
 $stmt->execute([$businessId]);
 $business = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -38,7 +34,6 @@ if (!$business) {
     exit;
 }
 
-                                               
 if (!canAccessBusiness($businessId)) {
     http_response_code(403);
     error_log('idor_attempt_blocked: business=' . $businessId);
@@ -61,6 +56,7 @@ switch ($action) {
         $ilce = trim($_POST['ilce'] ?? '');
         $tamAdres = trim($_POST['tam_adres'] ?? '');
         $aciklama = trim($_POST['aciklama'] ?? '');
+        $isVip = (isset($_POST['is_vip']) && $_POST['is_vip'] === '1') ? 1 : 0;
 
         if (empty($isletmeAdi) || empty($isletmeSahibi) || empty($telefon) || empty($eposta)) {
             $_SESSION['flash_error'] = 'Lütfen tüm zorunlu alanları (İşletme adı, yetkili, telefon, e-posta) doldurun.';
@@ -68,7 +64,6 @@ switch ($action) {
             exit;
         }
 
-                                                                      
         $stmt = $pdo->prepare("SELECT COUNT(*) FROM isletmeler WHERE (telefon = ? OR eposta = ?) AND id != ?");
         $stmt->execute([$telefon, $eposta, $businessId]);
         if ((int)$stmt->fetchColumn() > 0) {
@@ -79,9 +74,9 @@ switch ($action) {
 
         $stmt = $pdo->prepare("UPDATE isletmeler SET 
             isletme_adi = ?, isletme_sahibi = ?, telefon = ?, eposta = ?, 
-            sehir = ?, ilce = ?, tam_adres = ?, aciklama = ? 
+            sehir = ?, ilce = ?, tam_adres = ?, aciklama = ?, is_vip = ? 
             WHERE id = ?");
-        $stmt->execute([$isletmeAdi, $isletmeSahibi, $telefon, $eposta, $sehir, $ilce, $tamAdres, $aciklama, $businessId]);
+        $stmt->execute([$isletmeAdi, $isletmeSahibi, $telefon, $eposta, $sehir, $ilce, $tamAdres, $aciklama, $isVip, $businessId]);
 
         logAdminAction('business_update', 'isletmeler', $businessId, "İşletme bilgileri güncellendi: {$isletmeAdi}");
         $_SESSION['flash_success'] = "'{$isletmeAdi}' işletme bilgileri başarıyla güncellendi.";
@@ -109,6 +104,28 @@ switch ($action) {
         $statusText = $newStatus === 'active' ? 'aktifleştirildi' : 'askıya alındı';
         logAdminAction('business_status_change', 'isletmeler', $businessId, "İşletme durumu değiştirildi: {$statusText}");
         $_SESSION['flash_success'] = "'{$business['isletme_adi']}' işletmesi {$statusText}.";
+        break;
+
+    case 'toggle_vip':
+        if (!isCurrentUserAdmin() && !canCurrentUser('businesses.edit')) {
+            $_SESSION['flash_error'] = 'VIP özelliği verme yetkiniz bulunmuyor.';
+            header('Location: /admin/pages/businesses.php');
+            exit;
+        }
+
+        $newVip = empty($business['is_vip']) ? 1 : 0;
+        $stmt = $pdo->prepare("UPDATE isletmeler SET is_vip = ? WHERE id = ?");
+        $stmt->execute([$newVip, $businessId]);
+
+        $vipText = $newVip ? 'VIP salon olarak işaretlendi' : 'VIP salon özelliği kaldırıldı';
+        logAdminAction('business_vip_toggle', 'isletmeler', $businessId, "İşletme VIP durumu değiştirildi: {$vipText}");
+        $_SESSION['flash_success'] = "'{$business['isletme_adi']}' işletmesi {$vipText}.";
+        
+        $referer = $_SERVER['HTTP_REFERER'] ?? '';
+        if ($referer && str_contains($referer, '/admin/pages/businesses.php')) {
+            header('Location: ' . $referer);
+            exit;
+        }
         break;
 
     case 'reset_password':
