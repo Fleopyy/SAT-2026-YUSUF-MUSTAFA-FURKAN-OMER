@@ -53,6 +53,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             bindPasswordSession('user', $newHash);
             session_regenerate_id(true);
 
+            // Güvenlik bildirimi e-postası gönder
             sendPasswordChangedNotification($customerId, $customer['eposta'], $customer['ad_soyad']);
 
             customerFlash('success', 'Şifren güncellendi.');
@@ -207,11 +208,23 @@ include __DIR__ . '/_header.php';
             <div class="customer-muted small"><?= customerEscape($customer['eposta']) ?> · <?= customerEscape($customer['telefon']) ?></div>
         </div>
     </div>
-    <form method="POST" enctype="multipart/form-data" class="row g-3 align-items-end">
+    <form method="POST" enctype="multipart/form-data" class="pt-3 border-top">
         <input type="hidden" name="csrf_token" value="<?= customerEscape(generateCsrfToken()) ?>">
         <input type="hidden" name="action" value="photo">
-        <div class="col-md-8"><label for="customerPhoto" class="form-label fw-semibold">Profil fotoğrafı</label><input class="form-control" type="file" name="photo" id="customerPhoto" accept="image/jpeg,image/png,image/webp" required><div class="form-text">JPG, PNG veya WEBP; en fazla 5 MB.</div></div>
-        <div class="col-md-4"><button class="customer-button w-100" type="submit">Fotoğrafı kaydet</button></div>
+        <label for="customerPhoto" class="form-label fw-semibold mb-2">Profil Fotoğrafı Yükle / Güncelle</label>
+        <div class="row g-2 align-items-center">
+            <div class="col-12 col-md-7 col-lg-6">
+                <input class="form-control" type="file" name="photo" id="customerPhoto" accept="image/jpeg,image/png,image/webp" required style="height: 42px;">
+            </div>
+            <div class="col-12 col-md-auto">
+                <button class="customer-button text-nowrap w-100 w-md-auto" type="submit" style="height: 42px;">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> Fotoğrafı Kaydet
+                </button>
+            </div>
+            <div class="col-12">
+                <div class="form-text mt-1 text-muted">JPG, PNG veya WEBP formatında; en fazla 5 MB.</div>
+            </div>
+        </div>
     </form>
 </section>
 
@@ -237,7 +250,7 @@ include __DIR__ . '/_header.php';
             <input class="form-control bg-light" type="email" id="custEmailReadOnly" disabled value="<?= customerEscape($customer['eposta']) ?>">
             <div class="form-text small">E-posta adresi güvenlik sebebiyle doğrudan değiştirilemez.</div>
         </div>
-        <div class="col-12 mt-3">
+        <div class="col-12 mt-3 pt-2 border-top">
             <button class="customer-button" type="submit"><i class="fa-solid fa-floppy-disk me-1"></i> Bilgileri Kaydet</button>
         </div>
     </form>
@@ -251,7 +264,7 @@ include __DIR__ . '/_header.php';
         <div class="col-md-4"><label class="form-label" for="currentPassword">Mevcut şifre</label><input class="form-control" type="password" name="current_password" id="currentPassword" autocomplete="current-password" required></div>
         <div class="col-md-4"><label class="form-label" for="newPassword">Yeni şifre</label><input class="form-control" type="password" name="new_password" id="newPassword" minlength="10" maxlength="72" autocomplete="new-password" required><div class="form-text small">En az 10 karakter uzunluğunda olmalıdır.</div></div>
         <div class="col-md-4"><label class="form-label" for="confirmPassword">Yeni şifre (tekrar)</label><input class="form-control" type="password" name="confirm_password" id="confirmPassword" minlength="10" maxlength="72" autocomplete="new-password" required></div>
-        <div class="col-12"><button class="customer-button" type="submit">Şifreyi güncelle</button></div>
+        <div class="col-12 mt-3 pt-2 border-top"><button class="customer-button" type="submit"><i class="fa-solid fa-key me-1"></i> Şifreyi Güncelle</button></div>
     </form>
 </section>
 

@@ -1,4 +1,5 @@
 <?php
+// Maintenance and test tools must never run through HTTP.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -20,6 +21,9 @@ function reportTest(string $title, bool $passed, string $details = ''): void {
 $pdo->beginTransaction();
 
 try {
+    // ---------------------------------------------------------
+    // TEST 1: Database Columns Existence & Precision
+    // ---------------------------------------------------------
     $cols = $pdo->query("SHOW COLUMNS FROM isletmeler")->fetchAll(PDO::FETCH_ASSOC);
     $colMap = [];
     foreach ($cols as $c) {
@@ -44,10 +48,16 @@ try {
     $isDecimalPrecision = (str_contains($latType, 'decimal(10,8)') && str_contains($lngType, 'decimal(11,8)'));
     reportTest("Koordinat decimal hassasiyeti (DECIMAL 10,8 ve 11,8)", $isDecimalPrecision, "Lat: $latType, Lng: $lngType");
 
+    // ---------------------------------------------------------
+    // TEST 2: Maps Config and Key Validation
+    // ---------------------------------------------------------
     $config = mapsSettings();
     $hasSettings = isset($config['google_maps_api_key'], $config['has_api_key'], $config['default_lat']);
     reportTest("Harita yapılandırma servisi (mapsSettings()) çalışıyor", $hasSettings);
 
+    // ---------------------------------------------------------
+    // TEST 3: Coordinate Validation Function (isValidCoordinate)
+    // ---------------------------------------------------------
     $valid1 = isValidCoordinate(41.0082, 28.9784); // Istanbul
     $valid2 = isValidCoordinate(-89.9999, 179.9999);
     $invalid1 = isValidCoordinate(91.0, 28.0); // Lat > 90
@@ -59,6 +69,9 @@ try {
     $coordValidationOk = $valid1 && $valid2 && !$invalid1 && !$invalid2 && !$invalid3 && !$invalid4 && !$invalid5;
     reportTest("Koordinat sınır doğrulaması (Enlem -90..90, Boylam -180..180)", $coordValidationOk);
 
+    // ---------------------------------------------------------
+    // TEST 4: Create Test Business
+    // ---------------------------------------------------------
     $suffix = bin2hex(random_bytes(4));
     $stmt = $pdo->prepare("INSERT INTO isletmeler (
         isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce,
@@ -89,6 +102,9 @@ try {
     $testBusinessId = (int)$pdo->lastInsertId();
     reportTest("Test işletmesi adres ve koordinatlarıyla oluşturuldu", $testBusinessId > 0);
 
+    // ---------------------------------------------------------
+    // TEST 5: Verify Saved Coordinates in DB
+    // ---------------------------------------------------------
     $stmt = $pdo->prepare("SELECT * FROM isletmeler WHERE id = ?");
     $stmt->execute([$testBusinessId]);
     $savedBusiness = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -98,6 +114,10 @@ try {
     $coordsMatch = (abs($dbLat - $testLat) < 0.000001) && (abs($dbLng - $testLng) < 0.000001);
     reportTest("Veritabanından okunan koordinatlar birebir eşleşiyor", $coordsMatch, "DB Lat: $dbLat, DB Lng: $dbLng");
 
+    // ---------------------------------------------------------
+    // TEST 6: AJAX Endpoint isletme/konum_kaydet.php (Happy Path)
+    // ---------------------------------------------------------
+    // Simulate authenticated barber session
     $_SESSION['barber_id'] = $testBusinessId;
     $_SESSION['barber_role'] = 'barber';
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
@@ -120,6 +140,7 @@ try {
     $ajaxSuccess = ($ajaxResponse['success'] ?? false) === true;
     reportTest("AJAX konum kaydetme endpointi (isletme/konum_kaydet.php)", $ajaxSuccess, $ajaxResponse['message'] ?? '');
 
+    // Verify update in DB
     $stmt = $pdo->prepare("SELECT latitude, longitude, location_verified_at FROM isletmeler WHERE id = ?");
     $stmt->execute([$testBusinessId]);
     $updatedRow = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -127,6 +148,9 @@ try {
     $verifiedUpdated = !empty($updatedRow['location_verified_at']);
     reportTest("AJAX sonrası veritabanı koordinatları ve onay tarihi güncellendi", $latUpdated && $verifiedUpdated);
 
+    // ---------------------------------------------------------
+    // TEST 7: AJAX Endpoint Validation & Rejection of Invalid Coords
+    // ---------------------------------------------------------
     $_POST = [
         'csrf_token' => $_SESSION['csrf_token'],
         'latitude' => '999.99', // Invalid > 90
@@ -151,6 +175,10 @@ try {
     $stringRejected = ($stringResponse['success'] ?? true) === false;
     reportTest("Sayısal olmayan koordinat metni reddedildi", $stringRejected);
 
+    // ---------------------------------------------------------
+    // TEST 8: IDOR / Security Verification
+    // ---------------------------------------------------------
+    // Create a second business to test IDOR
     $stmt = $pdo->prepare("INSERT INTO isletmeler (
         isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce,
         latitude, longitude, sifre_hash, durum
@@ -168,6 +196,9 @@ try {
     ]);
     $otherBusinessId = (int)$pdo->lastInsertId();
 
+    // The logged-in session is still $testBusinessId.
+    // Even if an attacker attempts to send other IDs in POST (e.g. business_id=otherBusinessId),
+    // isletme/konum_kaydet.php strictly uses session $businessId.
     $_POST = [
         'csrf_token' => $_SESSION['csrf_token'],
         'business_id' => $otherBusinessId, // Attack attempt
@@ -178,12 +209,16 @@ try {
     require __DIR__ . '/../isletme/konum_kaydet.php';
     ob_get_clean();
 
+    // Check that $otherBusinessId was NOT modified
     $stmt = $pdo->prepare("SELECT latitude FROM isletmeler WHERE id = ?");
     $stmt->execute([$otherBusinessId]);
     $otherLat = (float)$stmt->fetchColumn();
     $idorProtected = abs($otherLat - 39.92077) < 0.0001;
     reportTest("IDOR koruması: Oturumdaki işletme başka işletmenin konumunu değiştiremez", $idorProtected);
 
+    // ---------------------------------------------------------
+    // TEST 9: CSRF Protection
+    // ---------------------------------------------------------
     $_POST = [
         'csrf_token' => 'invalid-token-12345',
         'latitude' => '41.11111111',
@@ -196,6 +231,9 @@ try {
     $csrfBlocked = ($csrfResponse['success'] ?? true) === false;
     reportTest("CSRF güvenlik koruması: Geçersiz token ile istek reddedildi", $csrfBlocked);
 
+    // ---------------------------------------------------------
+    // TEST 10: Customer Page (berber.php) Rendering with Location
+    // ---------------------------------------------------------
     unset($_SESSION['barber_id'], $_SESSION['barber_role']);
     $_SERVER['REQUEST_METHOD'] = 'GET';
     $_GET['id'] = (string)$testBusinessId;
@@ -216,6 +254,10 @@ try {
     reportTest("Google Maps 'Haritada Aç' bağlantısı doğru formatta oluşturuldu", $containsGoogleMapsSearch);
     reportTest("Müşteri harita tuvali (customerProfileMap) render edildi", $containsCustomerMap);
 
+    // ---------------------------------------------------------
+    // TEST 11: Customer Page when Business has NO coordinates
+    // ---------------------------------------------------------
+    // Create a business with NO coordinates (null lat/lng)
     $stmt = $pdo->prepare("INSERT INTO isletmeler (
         isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce,
         tam_adres, latitude, longitude, sifre_hash, durum
@@ -241,6 +283,9 @@ try {
     $hasAddressSearch = str_contains($noCoordsHtml, 'Google Haritalar\'da Adresi Ara');
     reportTest("Koordinatı olmayan işletmede boş harita gösterilmedi, temiz adres gösterildi", $noEmptyMap && $hasAddressSearch);
 
+    // ---------------------------------------------------------
+    // TEST 12: Existing Appointments & Services Integrity Check
+    // ---------------------------------------------------------
     $stmt = $pdo->prepare("INSERT INTO hizmetler (isletme_id, hizmet_adi, fiyat, sure_dakika, aktif_mi) VALUES (?, 'Test Kesim', 250.00, 30, 1)");
     $stmt->execute([$testBusinessId]);
     $hizmetId = (int)$pdo->lastInsertId();
@@ -250,6 +295,9 @@ try {
     $hizmetCount = (int)$stmt->fetchColumn();
     reportTest("Mevcut hizmetler ve randevu altyapısı sağlamlığı korundu", $hizmetCount === 1);
 
+    // ---------------------------------------------------------
+    // TEST 13: Turkey Districts Dataset Integrity
+    // ---------------------------------------------------------
     $districtsFile = __DIR__ . '/../data/turkey_districts.json';
     $districtsExist = file_exists($districtsFile);
     $decoded = json_decode(file_get_contents($districtsFile), true);

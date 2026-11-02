@@ -1,4 +1,5 @@
 <?php
+// CLI only. Production handlers with doubles, customer SQL with SQLite :memory:.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 $checks = 0;
 function verify3c(bool $ok, string $name): void {
@@ -38,6 +39,8 @@ foreach (['business', 'application'] as $handler) {
         }
     }
 }
+// Run actual authorization functions with the existing DB double for identity/scope,
+// and actual customer SELECT statements against a separate in-memory PDO database.
 $bootstrap = file_get_contents(__DIR__.'/stage3b_security_test.php');
 $bootstrap = substr($bootstrap,0,strpos($bootstrap,'$checks = 0;'));
 $argv = [__FILE__];
@@ -58,6 +61,7 @@ for ($i=4;$i<=58;$i++) {
 $code = file_get_contents(__DIR__.'/../admin/pages/customers.php');
 $code = preg_replace('/^require_once .*;\s*$/m','',$code);
 $code = substr($code,0,strpos($code,'/*',strpos($code,'$customers = [];'))); // stop before pageUrl declaration
+// Keep auth/scope calls on the double; all customer queries use real SQLite.
 $code = str_replace('$scopeParams = [];', '$pdo = $scopeDb; $scopeParams = [];', $code);
 $code = str_replace('if ($viewId > 0)', '$pdo = $db; if ($viewId > 0)', $code);
 foreach ([[7],[],null,[7,8]] as $ids) foreach ([1,2,3] as $id) foreach (['','Hidden','Shared'] as $q) {
@@ -80,6 +84,7 @@ foreach ([[7],[],null,[7,8]] as $ids) foreach ([1,2,3] as $id) foreach (['','Hid
         }
     }
 }
+// City filters cannot expose otherwise hidden customers.
 $scopeDb->ids=[7]; $scopeDb->scope='belirli_isletmeler'; $pdo=$scopeDb;
 $_GET=['sehir'=>'SecretCity']; eval('?>'.$code);
 verify3c($totalCount===0 && $customers===[],'city filter scope');

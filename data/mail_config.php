@@ -1,4 +1,5 @@
 <?php
+// Pure configuration loader; never opens a network connection or outputs secrets.
 function mailSettings(?array $local = null, ?callable $environment = null): array
 {
     if ($local === null) {
@@ -45,6 +46,7 @@ function mailSettings(?array $local = null, ?callable $environment = null): arra
         }
     }
 
+    // Type coercion & validation
     $settings['port'] = (int)$settings['port'];
     if ($settings['port'] < 1 || $settings['port'] > 65535) {
         throw new RuntimeException('Invalid SMTP port.');

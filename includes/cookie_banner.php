@@ -1,4 +1,8 @@
 <?php
+/**
+ * BiTıraş.com — Modern Çerez Onay ve Yönetim Sistemi
+ * KVKK ve GDPR uyumlu, kategorize edilmiş çerez tercihi paneli ve modalı.
+ */
 ?>
 <!-- ÇEREZ ONAY BANNERI -->
 <div id="bitirasCookieBanner" class="bitiras-cookie-banner" style="display:none;" role="dialog" aria-live="polite" aria-label="Çerez Kullanımı">
@@ -77,7 +81,7 @@
                             </div>
                         </div>
                         <p class="text-muted mb-0" style="font-size:13px;line-height:1.45;">
-                            İsteğe bağlı haritaları, yazı tiplerini ve ikonları etkinleştirir. Google, OpenStreetMap, unpkg ve cdnjs kaynakları yüklendiğinde IP adresiniz ve istek bilgileri bu sağlayıcılara iletilebilir. İzin kapalıyken bu kaynaklar yüklenmez. Tercihi değiştirdiğinizde sayfa yenilenir.
+                            İsteğe bağlı harita servislerini (Google Maps, OpenStreetMap) ve filtreleme tercihlerinizi etkinleştirir. İzin kapalıyken harici harita sağlayıcıları yüklenmez ve konum tercihleri oturum sonunda sıfırlanır. Tercihi değiştirdiğinizde sayfa yenilenir.
                         </p>
                     </div>
 
@@ -132,6 +136,7 @@
 </div>
 
 <style>
+#cookieSettingsModal:not(.show) {
     display: none !important;
 }
 
@@ -275,6 +280,7 @@ var BitirasCookie = (function() {
         setCookie(COOKIE_NAME, JSON.stringify(consent), COOKIE_DAYS);
         hideBanner();
 
+        // Dispatch global event for external scripts/analytics
         try {
             window.dispatchEvent(new CustomEvent('bitirasCookieConsentChanged', { detail: consent }));
         } catch(e) {}
@@ -283,9 +289,12 @@ var BitirasCookie = (function() {
             window.location.reload();
             return;
         }
+        // Enable or disable scripts based on consent
         if (!consent.analytics) {
+            // Disable analytics cookies/scripts if any
         }
         if (!consent.marketing) {
+            // Disable marketing cookies/scripts if any
         }
     }
 
@@ -304,6 +313,7 @@ var BitirasCookie = (function() {
         if (!consent) {
             setTimeout(showBanner, 400);
         } else {
+            // Sync preferences modal switches with current saved state
             syncModalInputs(consent);
         }
     }
@@ -387,6 +397,7 @@ var BitirasCookie = (function() {
         }
     }
 
+    // Auto-initialize when DOM is ready
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
@@ -406,6 +417,7 @@ var BitirasCookie = (function() {
     };
 })();
 
+// Global alias for footers and legal pages
 window.openCookieSettings = function() {
     BitirasCookie.openSettings();
 };

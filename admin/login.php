@@ -8,6 +8,7 @@ require_once __DIR__ . '/../data/privacy.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once dirname(__DIR__) . '/data/two_factor_service.php';
 
+// Oturum kontrolü
 if (getAuthenticatedAdmin()) {
     header('Location: /admin/dashboard');
     exit;
@@ -24,12 +25,14 @@ if (getAuthenticatedBarber()) {
 $error = '';
 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
+// 2FA İptal
 if (($_GET['step'] ?? '') === 'cancel') {
     unset($_SESSION['2fa_pending']);
     header('Location: /admin/login.php');
     exit;
 }
 
+// 2FA Kodu Yeniden Gönder
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'resend_2fa') {
     if (!verifyCsrfToken()) { http_response_code(403); exit('CSRF dogrulamasi basarisiz.'); }
     $pending = $_SESSION['2fa_pending'] ?? null;
@@ -67,6 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $postAction = $_POST['action'] ?? 'login';
 
+        // 2FA KOD DOĞRULAMA ADIMI
         if ($postAction === 'verify_2fa') {
             $pending = $_SESSION['2fa_pending'] ?? null;
             if (!$pending || ($pending['expires'] ?? 0) < time() || ($pending['attempts'] ?? 0) >= 8) {
@@ -148,6 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         } else {
+            // İLK AŞAMA: E-POSTA VE ŞİFRE KONTROLÜ
             $loginInput = trim($_POST['eposta'] ?? '');
             $password = $_POST['sifre'] ?? '';
 
@@ -164,6 +169,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         recordLoginAttempt($ip, $loginInput, false);
                         $error = 'Hesabınız devre dışı bırakılmıştır. Lütfen sistem yöneticisi ile iletişime geçin.';
                     } else {
+                        // Admin için ZORUNLU 2FA Challenge başlatılır
                         $_SESSION['2fa_pending'] = [
                             'type'     => 'admin',
                             'user_id'  => (int)$adminUser['id'],
@@ -196,6 +202,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             recordLoginAttempt($ip, $loginInput, false);
                             $error = 'İşletme hesabınız askıya alınmıştır.';
                         } else {
+                            // İşletme için RİSK BAZLI 2FA değerlendirmesi
                             completeBarberPasswordLogin($barber, $loginInput, '/barber/dashboard');
                         }
                     } else {
@@ -235,6 +242,7 @@ $csrfToken = generateCsrfToken();
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Plus Jakarta Sans', sans-serif;
             background: linear-gradient(135deg, #0B0F19 0%, #111827 50%, #0F172A 100%);
@@ -589,6 +597,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var input = document.getElementById('twoFactorCodeInput');
     if (input) {
         input.addEventListener('input', function() {
+            // Boşlukları ve görünmez karakterleri temizle
             this.value = this.value.replace(/\s+/g, '');
         });
         input.addEventListener('paste', function(e) {

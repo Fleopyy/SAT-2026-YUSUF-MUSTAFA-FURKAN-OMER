@@ -1,4 +1,7 @@
 <?php
+// BİTİRAS — E-Posta Kuyruk ve Randevu Bildirim CLI İşçisi
+// Bu betik sadece CLI (Komut Satırı) üzerinden çalışacak şekilde kilitlenmiştir.
+// Windows Görev Zamanlayıcı (Task Scheduler) ile periyodik olarak çalıştırılabilir.
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
@@ -7,6 +10,7 @@ if (PHP_SAPI !== 'cli') {
     exit(1);
 }
 
+// Zaman limiti ve bellek ayarları
 @set_time_limit(300);
 @ini_set('memory_limit', '128M');
 if (!ini_get('date.timezone')) {
@@ -53,6 +57,7 @@ $results = [
 ];
 
 try {
+    // 1. Randevu Hatırlatma Denetimi (24 saat, 2 saat, işletme yaklaşan randevu)
     if (!$queueOnly) {
         if (!$quiet) {
             echo "[{$timestamp}] Randevu hatırlatmaları taranıyor...\n";
@@ -70,6 +75,7 @@ try {
         }
     }
 
+    // 2. Kuyruktaki E-Postaların Gönderilmesi
     if (!$remindersOnly) {
         if (!$quiet) {
             echo "[{$timestamp}] Kuyruktaki e-postalar işleniyor (azami: {$limit})...\n";

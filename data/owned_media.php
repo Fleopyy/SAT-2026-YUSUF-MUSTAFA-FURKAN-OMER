@@ -1,4 +1,5 @@
 <?php
+// Only business-owned upload paths are accepted. No database/bootstrap side effects.
 function ownedMediaPath(string $path, int $businessId, ?string $root = null): string {
     $root = $root ?? dirname(__DIR__);
     $path = str_replace('\\', '/', $path);
@@ -16,6 +17,7 @@ function ownedMediaPath(string $path, int $businessId, ?string $root = null): st
         clearstatcache(true, $walk);
         if (is_link($walk)) throw new RuntimeException('Sembolik bağlantı silinemez.');
         $resolved = realpath($walk);
+        // Also reject junctions / redirects, including redirects inside the upload tree.
         $expected = str_replace('\\', '/', $walk);
         $actual = str_replace('\\', '/', (string)$resolved);
         if (PHP_OS_FAMILY === 'Windows') { $expected = strtolower($expected); $actual = strtolower($actual); }
@@ -40,10 +42,12 @@ function deleteOwnedMedia(string $path, int $businessId, $db = null, ?callable $
     $staged = false;
     try {
         if ($db && $db->beginTransaction() === false) throw new RuntimeException('İşlem başlatılamadı.');
+        // Revalidate immediately before touching the filesystem.
         if (ownedMediaPath($path, $businessId, $root) !== $file) throw new RuntimeException('Dosya yolu değişti.');
         if (!rename($file, $backup)) throw new RuntimeException('Dosya silmeye hazırlanamadı.');
         $staged = true;
         if ($change) $change();
+        // Delete before commit; retain a recovery copy until the database commits.
         if (!copy($backup, $file)) throw new RuntimeException('Dosya kurtarma kopyası oluşturulamadı.');
         if (!unlink($file)) throw new RuntimeException('Dosya silinemedi.');
         if ($db && $db->commit() === false) throw new RuntimeException('İşlem kaydedilemedi.');

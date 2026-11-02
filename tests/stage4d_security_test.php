@@ -1,4 +1,5 @@
 <?php
+// CLI only. Configuration tests and a fake PDO; never loads a real driver.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../data/database_config.php';
 if (isset($argv[1])) {
@@ -39,6 +40,7 @@ foreach ([[], array_replace($local, ['host'=>'localhost;dbname=other']), array_r
     try { databaseSettings($bad, $missing); } catch (RuntimeException $e) { $rejected = true; }
     check4d($rejected, 'invalid configuration fails closed');
 }
+// Fake PDO subprocess exercises actual bootstrap, including its exit path.
 foreach (['success', 'failure'] as $mode) {
     $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__FILE__) . ' ' . $mode . ' 2>&1';
     $output = shell_exec($command);

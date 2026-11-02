@@ -1,4 +1,6 @@
 <?php
+// Central Mail Service for BİTİRAS
+// Secure Gmail SMTP transmission via PHPMailer with strict TLS validation.
 
 require_once __DIR__ . '/mail_config.php';
 require_once dirname(__DIR__) . '/includes/PHPMailer/autoload.php';
@@ -7,6 +9,9 @@ use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 use PHPMailer\PHPMailer\SMTP;
 
+/**
+ * Creates and configures a PHPMailer instance using verified Gmail SMTP settings.
+ */
 function createMailer(?array $settings = null): PHPMailer
 {
     $settings = $settings ?? mailSettings();
@@ -22,12 +27,14 @@ function createMailer(?array $settings = null): PHPMailer
     $mail->Timeout = 20;
     $mail->SMTPDebug = 0;
 
+    // Strict STARTTLS / TLS configuration
     if ($settings['secure'] === 'tls') {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
     } elseif ($settings['secure'] === 'ssl') {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
     }
 
+    // Explicit TLS peer and name verification; never disable certificate verification.
     $mail->SMTPOptions = [
         'ssl' => [
             'verify_peer'       => true,
@@ -40,6 +47,11 @@ function createMailer(?array $settings = null): PHPMailer
     return $mail;
 }
 
+/**
+ * Sends an email directly via Gmail SMTP.
+ * Returns an array with ['success' => bool, 'message' => string].
+ * Secrets and passwords are NEVER exposed in return values or error logs.
+ */
 function sendMailDirect(
     string $toEmail,
     string $toName,
@@ -53,6 +65,7 @@ function sendMailDirect(
         return ['success' => false, 'message' => 'Geçersiz alıcı e-posta adresi.'];
     }
 
+    // Check for header injection in subject or recipient
     if (preg_match('/[\r\n\x00]/', $subject) || preg_match('/[\r\n\x00]/', $toName)) {
         return ['success' => false, 'message' => 'E-posta başlığında geçersiz karakterler bulundu.'];
     }
@@ -75,6 +88,8 @@ function sendMailDirect(
         $mailer->Body    = $htmlBody;
         $mailer->AltBody = !empty($textBody) ? $textBody : strip_tags(str_replace(['<br>', '<br/>', '<br />', '</p>'], "\n", $htmlBody));
 
+        // A connect/auth failure is safe to retry. Once message transmission begins,
+        // a lost SMTP response cannot prove non-delivery; never retry it automatically.
         if (!$mailer->smtpConnect()) throw new RuntimeException('SMTP connection unavailable');
         $deliveryStarted = true;
         $mailer->send();
@@ -96,6 +111,10 @@ function sendMailDirect(
     }
 }
 
+/**
+ * Enqueues an email into eposta_kuyrugu with idempotency / deduplication support.
+ * Backwards compatible with legacy 4-column schema as well as migrated schema.
+ */
 function enqueueMail(
     string $toEmail,
     ?string $toName,
@@ -121,6 +140,7 @@ function enqueueMail(
     $lockStmt->execute([$enqueueLock]);
     if ((int)$lockStmt->fetchColumn() !== 1) return false;
     $lockHeld = true;
+    // Inspect schema columns once per request
     static $hasIdempotencyCol = null;
     static $hasTurCol = null;
     if ($hasIdempotencyCol === null) {
@@ -135,6 +155,7 @@ function enqueueMail(
         }
     }
 
+    // Deduplication check
     if (!empty($idempotencyKey)) {
         if ($hasIdempotencyCol) {
             $stmt = $pdo->prepare("SELECT id FROM eposta_kuyrugu WHERE idempotency_key = ? LIMIT 1");
@@ -144,6 +165,7 @@ function enqueueMail(
                 return (int)$existingId; // Already queued or processed
             }
         } else {
+            // Legacy schema: deduplicate the exact payload across pending and completed jobs.
             $stmt = $pdo->prepare("SELECT id FROM eposta_kuyrugu WHERE alici_eposta = ? AND konu = ? AND icerik = ? LIMIT 1");
             $stmt->execute([$toEmail, $subject, $body]);
             $existingId = $stmt->fetchColumn();
@@ -153,6 +175,7 @@ function enqueueMail(
         }
     }
 
+    // Insert into database
     if ($hasIdempotencyCol && $hasTurCol) {
         $stmt = $pdo->prepare("INSERT INTO eposta_kuyrugu (alici_eposta, alici_ad, konu, icerik, idempotency_key, tur) VALUES (?, ?, ?, ?, ?, ?)");
         if (!$stmt->execute([$toEmail, $toName, $subject, $body, $idempotencyKey, $tur])) return false;
@@ -176,6 +199,10 @@ function enqueueMail(
     }
 }
 
+/**
+ * Processes pending items from eposta_kuyrugu and transmits them via SMTP.
+ * Keeps track of attempts, stores sanitized failure messages, and flags exhausted jobs.
+ */
 function processMailQueue(int $batchSize = 20, ?array $customSettings = null): array
 {
     global $pdo;
@@ -232,6 +259,10 @@ function processMailQueue(int $batchSize = 20, ?array $customSettings = null): a
     }
 }
 
+/**
+ * Renders a responsive, brand-aligned HTML email template.
+ * All dynamic parameters are properly sanitized to eliminate HTML injection.
+ */
 function renderEmailTemplate(
     string $title,
     string $bodyHtml,
@@ -309,6 +340,7 @@ function renderEmailTemplate(
 </html>";
 }
 
+/** Processing acceptance does not establish mailbox delivery. */
 function dispatchAccountMail(string $email, string $name, string $subject, string $html, string $key, string $type): bool {
     $GLOBALS['account_mail_status'] = 'failed';
     try {

@@ -1,4 +1,5 @@
 <?php
+// Maintenance and test tools must never run through HTTP.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -23,10 +24,12 @@ function assertTest(string $description, bool $condition, string $detail = '') {
 }
 
 try {
+    // 1. Database schema test
     $columns = $pdo->query("SHOW COLUMNS FROM isletmeler")->fetchAll(PDO::FETCH_COLUMN);
     assertTest("isletmeler tablosunda 'is_vip' kolonu mevcut", in_array('is_vip', $columns, true));
     assertTest("isletmeler tablosunda 'gece_acik' kolonu mevcut", in_array('gece_acik', $columns, true));
 
+    // Get an existing active business for testing
     $stmt = $pdo->query("SELECT id, isletme_adi, is_vip, gece_acik FROM isletmeler WHERE durum = 'active' LIMIT 1");
     $testBusiness = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -35,14 +38,17 @@ try {
         $originalVip = (int)$testBusiness['is_vip'];
         $originalGece = (int)$testBusiness['gece_acik'];
 
+        // 2. Test VIP Toggle
         $pdo->prepare("UPDATE isletmeler SET is_vip = 1 WHERE id = ?")->execute([$testId]);
         $checkVip = (int)$pdo->query("SELECT is_vip FROM isletmeler WHERE id = $testId")->fetchColumn();
         assertTest("Admin işletmeyi VIP yapabiliyor (is_vip=1)", $checkVip === 1);
 
+        // 3. Test Gece Açık Toggle
         $pdo->prepare("UPDATE isletmeler SET gece_acik = 1 WHERE id = ?")->execute([$testId]);
         $checkGece = (int)$pdo->query("SELECT gece_acik FROM isletmeler WHERE id = $testId")->fetchColumn();
         assertTest("İşletme profili gece açık özelliğini güncelleyebiliyor (gece_acik=1)", $checkGece === 1);
 
+        // 4. Test VIP Filter Query
         $vipQuery = $pdo->query("SELECT id, isletme_adi, is_vip FROM isletmeler WHERE durum = 'active' AND is_vip = 1")->fetchAll(PDO::FETCH_ASSOC);
         $allVip = true;
         foreach ($vipQuery as $b) {
@@ -50,6 +56,7 @@ try {
         }
         assertTest("VIP filtresi yalnızca is_vip=1 olan işletmeleri listeliyor", $allVip && count($vipQuery) > 0);
 
+        // 5. Test Gece Açık Filter Query
         $geceQuery = $pdo->query("SELECT id, isletme_adi, gece_acik FROM isletmeler WHERE durum = 'active' AND gece_acik = 1")->fetchAll(PDO::FETCH_ASSOC);
         $allGece = true;
         foreach ($geceQuery as $b) {
@@ -57,6 +64,7 @@ try {
         }
         assertTest("Gece Açık filtresi yalnızca gece_acik=1 olan işletmeleri listeliyor", $allGece && count($geceQuery) > 0);
 
+        // 6. Test Rating Ordering Query
         $ratingSql = "SELECT i.id, i.isletme_adi, COALESCE(r.rating, 0) AS rating
                       FROM isletmeler i
                       LEFT JOIN (
@@ -76,11 +84,13 @@ try {
         }
         assertTest("En yüksek puanlılar filtresi puana göre azalan (DESC) sıralıyor", $isOrderedDesc);
 
+        // Restore original values
         $pdo->prepare("UPDATE isletmeler SET is_vip = ?, gece_acik = ? WHERE id = ?")->execute([$originalVip, $originalGece, $testId]);
     } else {
         echo " [WARN] Aktif test işletmesi bulunamadı, sorgu testleri atlandı.\n";
     }
 
+    // 7. Verify index.php file content
     $indexHtml = file_get_contents(dirname(__DIR__) . '/index.php');
     assertTest("index.php 'filtre=vip' linkini ve butonunu içeriyor", strpos($indexHtml, "data-filter=\"vip\"") !== false);
     assertTest("index.php 'filtre=puan' linkini ve butonunu içeriyor", strpos($indexHtml, "data-filter=\"puan\"") !== false);
@@ -89,10 +99,12 @@ try {
     assertTest("index.php Gece Açık rozetini kartlarda gösteriyor", strpos($indexHtml, "fa-moon") !== false);
     assertTest("index.php AJAX filtreleme scriptini içeriyor", strpos($indexHtml, "js-filter-link") !== false);
 
+    // 8. Verify admin panel businesses page
     $adminHtml = file_get_contents(dirname(__DIR__) . '/admin/pages/businesses.php');
     assertTest("admin/pages/businesses.php VIP toggle butonunu içeriyor", strpos($adminHtml, "toggle_vip") !== false);
     assertTest("admin/pages/businesses.php VIP rozetini ve statüsünü içeriyor", strpos($adminHtml, "VIP SALON") !== false || strpos($adminHtml, "VIP Statüsü") !== false);
 
+    // 9. Verify business profile page
     $isletmeHtml = file_get_contents(dirname(__DIR__) . '/isletme/profil.php');
     assertTest("isletme/profil.php 'gece_acik' switch/toggle butonunu içeriyor", strpos($isletmeHtml, "name=\"gece_acik\"") !== false);
 

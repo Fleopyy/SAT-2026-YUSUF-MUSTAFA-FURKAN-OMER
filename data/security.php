@@ -1,4 +1,5 @@
 <?php
+// HTTP security headers are owned by the root .htaccess (Apache mod_headers).
 require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/database.php';
 
@@ -10,7 +11,7 @@ function generateCsrfToken(): string {
 }
 
 function verifyCsrfToken($token = null): bool {
-    $token = $token ?? ($_POST['csrf_token'] ?? '');
+    $token = $token ?? ($_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (!is_string($token) || empty($token) || empty($_SESSION['csrf_token'])) {
         return false;
     }
@@ -19,8 +20,19 @@ function verifyCsrfToken($token = null): bool {
 
 function requireCsrf(): void {
     if (!verifyCsrfToken()) {
-        http_response_code(403);
-        die(json_encode(['success' => false, 'message' => 'Geçersiz güvenlik tokeni (CSRF). Lütfen sayfayı yenileyip tekrar deneyin.']));
+        $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+               || (strpos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false);
+        if ($isAjax) {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            die(json_encode(['success' => false, 'message' => 'Geçersiz güvenlik tokeni (CSRF). Lütfen sayfayı yenileyip tekrar deneyin.']));
+        }
+        $_SESSION['mesaj'] = 'Geçersiz güvenlik tokeni (CSRF). Lütfen sayfayı yenileyip tekrar deneyin.';
+        $_SESSION['mesaj_turu'] = 'danger';
+        $redirect = !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : 'index.php';
+        $path = parse_url($redirect, PHP_URL_PATH) ?: 'index.php';
+        header('Location: ' . $path);
+        exit;
     }
 }
 
@@ -45,6 +57,7 @@ function validNewPassword(string $password): bool {
     return strlen($password) >= 10 && strlen($password) <= 72;
 }
 
+// A digest of the current password record acts as a revocation version, without a schema change.
 function bindPasswordSession(string $kind, string $hash): void {
     $_SESSION[$kind . '_password_version'] = hash('sha256', $hash);
 }
@@ -75,6 +88,7 @@ function validatePasswordSessions(): void {
 validatePasswordSessions();
 
 
+// Shared across sessions and workers; uses existing schema, no raw account/IP storage.
 function consumeMailRequestLimit(string $purpose, string $account, int $maximum = 3): bool {
     global $pdo;
     $ipKey = 'mail:' . substr(hash('sha256', $purpose . ($_SERVER['REMOTE_ADDR'] ?? 'unknown')), 0, 40);

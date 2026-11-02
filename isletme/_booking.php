@@ -1,17 +1,27 @@
 <?php
-function businessCanBook(PDO $pdo, int $businessId, int $employeeId, int $serviceId, string $start, ?int $excludeAppointmentId = null): array {
+function businessCanBook(PDO $pdo, int $businessId, int $employeeId, int|array $serviceId, string $start, ?int $excludeAppointmentId = null): array {
     $begin = DateTime::createFromFormat('!Y-m-d H:i', $start);
     $dateErrors = DateTime::getLastErrors();
     if (!$begin || ($dateErrors && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0)) || $begin->format('Y-m-d H:i') !== $start || $begin < new DateTime()) {
         return [false, 'Geçerli ve ileri bir randevu saati seçin.'];
     }
-    $stmt = $pdo->prepare('SELECT sure_dakika FROM hizmetler WHERE id = ? AND isletme_id = ? AND aktif_mi = 1');
-    $stmt->execute([$serviceId, $businessId]);
-    $duration = $stmt->fetchColumn();
-    if ($duration === false) {
-        return [false, 'Seçilen hizmet aktif değil veya işletmenize ait değil.'];
+    $serviceIds = is_array($serviceId) ? array_values(array_filter(array_map('intval', $serviceId))) : [(int)$serviceId];
+    if (empty($serviceIds)) {
+        return [false, 'Geçerli bir hizmet seçin.'];
     }
-    $end = (clone $begin)->modify('+' . (int)$duration . ' minutes');
+    $placeholders = implode(',', array_fill(0, count($serviceIds), '?'));
+    $stmt = $pdo->prepare("SELECT id, sure_dakika FROM hizmetler WHERE id IN ($placeholders) AND isletme_id = ? AND aktif_mi = 1");
+    $stmt->execute(array_merge($serviceIds, [$businessId]));
+    $servicesList = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    if (count($servicesList) !== count($serviceIds)) {
+        return [false, 'Seçilen hizmetlerden biri veya birkaçı aktif değil veya işletmenize ait değil.'];
+    }
+    $totalDuration = 0;
+    foreach ($servicesList as $s) {
+        $totalDuration += (int)$s['sure_dakika'];
+    }
+    if ($totalDuration < 1) $totalDuration = 30;
+    $end = (clone $begin)->modify('+' . $totalDuration . ' minutes');
     $weekday = (int)$begin->format('N');
     $date = $begin->format('Y-m-d');
     $startTime = $begin->format('H:i:s');
@@ -49,10 +59,10 @@ function businessCanBook(PDO $pdo, int $businessId, int $employeeId, int $servic
         if (!$stmt->fetchColumn()) {
             return [false, 'Seçilen çalışan aktif değil veya işletmenize ait değil.'];
         }
-        $stmt = $pdo->prepare('SELECT COUNT(*) FROM hizmet_calisanlari WHERE hizmet_id = ? AND calisan_id = ?');
-        $stmt->execute([$serviceId, $employeeId]);
-        if ((int)$stmt->fetchColumn() === 0) {
-            return [false, 'Seçilen çalışan bu hizmet için atanmadı.'];
+        $stmt = $pdo->prepare("SELECT COUNT(DISTINCT hizmet_id) FROM hizmet_calisanlari WHERE calisan_id = ? AND hizmet_id IN ($placeholders)");
+        $stmt->execute(array_merge([$employeeId], $serviceIds));
+        if ((int)$stmt->fetchColumn() !== count($serviceIds)) {
+            return [false, 'Seçilen çalışan seçtiğiniz tüm hizmetler için atanmamış.'];
         }
 
         $stmt = $pdo->prepare('SELECT COUNT(*) FROM calisan_calisma_araliklari WHERE calisan_id = ? AND haftanin_gunu = ? AND baslangic <= ? AND bitis >= ?');
@@ -91,7 +101,8 @@ function businessCanBook(PDO $pdo, int $businessId, int $employeeId, int $servic
     return [true, $end->format('Y-m-d H:i:s')];
 }
 
-function businessAvailableSlots(PDO $pdo, int $businessId, int $employeeId, int $serviceId, string $date): array {
+function businessAvailableSlots(PDO $pdo, int $businessId, int $employeeId, int|array $serviceId, string $date): array {
+    $serviceIds = is_array($serviceId) ? array_values(array_filter(array_map('intval', $serviceId))) : [(int)$serviceId];
     $parsedDate = DateTime::createFromFormat('!Y-m-d', $date);
     $dateErrors = DateTime::getLastErrors();
     if (!$parsedDate || ($dateErrors && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0)) || $parsedDate->format('Y-m-d') !== $date || $date < date('Y-m-d')) {
@@ -150,7 +161,7 @@ function businessAvailableSlots(PDO $pdo, int $businessId, int $employeeId, int 
         $periodEnd = new DateTime($date . ' ' . $period['bitis']);
         while ($slot < $periodEnd) {
             $slotValue = $slot->format('H:i');
-            [$available] = businessCanBook($pdo, $businessId, $employeeId, $serviceId, $date . ' ' . $slotValue);
+            [$available] = businessCanBook($pdo, $businessId, $employeeId, $serviceIds, $date . ' ' . $slotValue);
             $slots[] = ['time' => $slotValue, 'available' => $available];
             $slot->modify('+30 minutes');
         }

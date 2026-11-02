@@ -1,4 +1,5 @@
 <?php
+// Pure configuration loader; never opens a database connection.
 function databaseSettings(?array $local = null, ?callable $environment = null): array
 {
     if ($local === null) {
@@ -17,6 +18,7 @@ function databaseSettings(?array $local = null, ?callable $environment = null): 
             throw new RuntimeException('Incomplete database configuration.');
         }
     }
+    // Do not allow additional DSN parameters through configuration.
     foreach (['host', 'dbname'] as $key) {
         if (preg_match('/[;\x00-\x20\x7f]/', $settings[$key])) {
             throw new RuntimeException('Invalid database configuration.');

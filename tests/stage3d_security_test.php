@@ -1,4 +1,5 @@
 <?php
+// CLI only; temporary files and fake DB. Never load application/database bootstrap.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../data/owned_media.php';
 $checks = 0;
@@ -17,6 +18,7 @@ class MediaTestDatabase {
     public function inTransaction(): bool { return $this->active; }
     public function rollBack(): bool { $this->active = false; $this->rolledBack = true; return true; }
 }
+// Isolated subprocess for production action exits and authorization ordering.
 if (($argv[1] ?? '') === 'settings') {
     $grants = explode(',', $argv[2]);
     function requirePermission($permission) {
@@ -115,6 +117,7 @@ try {
     }
     echo "Stage 3D: $checks checks passed.\n";
 } finally {
+    // Only explicitly named test paths beneath this random temporary root.
     if (is_file($file)) unlink($file);
     foreach (glob(dirname($file).'/.delete-*') as $backup) unlink($backup);
     rmdir($root.'/uploads/isletme/7/gallery');

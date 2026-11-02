@@ -128,13 +128,17 @@ include __DIR__ . '/_header.php';
                     <div class="col-sm-6"><span class="customer-muted">Ücret</span><div class="fw-semibold"><?= number_format((float)($appointment['fiyat_snapshot'] ?? $appointment['fiyat'] ?? 0), 2, ',', '.') ?> ₺</div></div>
                 </div>
                 <?php if ($appointment['musteri_notu']): ?><p class="customer-muted small mb-0 mt-3">Notun: <?= customerEscape($appointment['musteri_notu']) ?></p><?php endif; ?>
-                <div class="d-flex gap-2 mt-3">
-                    <a class="btn btn-sm btn-outline-secondary" href="/berber.php?id=<?= (int)$appointment['isletme_id'] ?>">İşletme profili</a>
+                <div class="d-flex flex-wrap gap-2 mt-3 pt-3 border-top">
+                    <a class="btn btn-sm btn-outline-dark rounded-3 px-3 py-1 fw-semibold d-inline-flex align-items-center gap-1" href="/berber.php?id=<?= (int)$appointment['isletme_id'] ?>">
+                        <i class="fa-solid fa-store"></i> İşletme Profili
+                    </a>
                     <form method="POST" action="/musteri/randevularim.php" class="d-inline" onsubmit="return confirm('Randevunuzu iptal etmek istediğinize emin misiniz?');">
                         <input type="hidden" name="csrf_token" value="<?= customerEscape(generateCsrfToken()) ?>">
                         <input type="hidden" name="action" value="cancel">
                         <input type="hidden" name="appointment_id" value="<?= (int)$appointment['id'] ?>">
-                        <button type="submit" class="btn btn-sm btn-outline-danger">İptal Et</button>
+                        <button type="submit" class="btn btn-sm btn-outline-danger rounded-3 px-3 py-1 fw-semibold d-inline-flex align-items-center gap-1">
+                            <i class="fa-solid fa-xmark"></i> Randevuyu İptal Et
+                        </button>
                     </form>
                 </div>
             </article>
@@ -166,25 +170,38 @@ include __DIR__ . '/_header.php';
                             <p class="mb-0 mt-1"><?= customerEscape($appointment['customer_review']) ?></p>
                         </div>
                     <?php else: ?>
-                        <form method="POST" class="mt-3">
-                            <input type="hidden" name="csrf_token" value="<?= customerEscape(generateCsrfToken()) ?>">
-                            <input type="hidden" name="action" value="review">
-                            <input type="hidden" name="appointment_id" value="<?= (int)$appointment['id'] ?>">
-                            <div class="row g-2 align-items-end">
-                                <div class="col-sm-3">
-                                    <label class="form-label small fw-semibold" for="rating-<?= (int)$appointment['id'] ?>">Puanın</label>
-                                    <select class="form-select" id="rating-<?= (int)$appointment['id'] ?>" name="rating" required>
-                                        <option value="">Puan seç</option>
-                                        <?php for ($rating = 5; $rating >= 1; $rating--): ?><option value="<?= $rating ?>"><?= $rating ?> / 5</option><?php endfor; ?>
-                                    </select>
-                                </div>
-                                <div class="col-sm-9">
-                                    <label class="form-label small fw-semibold" for="comment-<?= (int)$appointment['id'] ?>">İşletme hakkında yorumun</label>
-                                    <textarea class="form-control" id="comment-<?= (int)$appointment['id'] ?>" name="comment" rows="2" maxlength="2000" required placeholder="Deneyimini paylaş..."></textarea>
-                                </div>
-                                <div class="col-12"><button class="customer-button" type="submit">Yorumu gönder</button></div>
+                        <div class="mt-3 p-3 rounded-3 bg-light border border-light-subtle">
+                            <div class="small fw-bold text-dark mb-2">
+                                <i class="fa-regular fa-star text-warning me-1"></i> Bu randevuyu değerlendirin:
                             </div>
-                        </form>
+                            <form method="POST">
+                                <input type="hidden" name="csrf_token" value="<?= customerEscape(generateCsrfToken()) ?>">
+                                <input type="hidden" name="action" value="review">
+                                <input type="hidden" name="appointment_id" value="<?= (int)$appointment['id'] ?>">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-12 col-md-3">
+                                        <label class="form-label small fw-semibold text-muted mb-1" for="rating-<?= (int)$appointment['id'] ?>">Puanınız</label>
+                                        <select class="form-select" id="rating-<?= (int)$appointment['id'] ?>" name="rating" required style="height: 42px; font-weight: 500;">
+                                            <option value="">Puan seçin</option>
+                                            <option value="5">⭐⭐⭐⭐⭐ 5 (Mükemmel)</option>
+                                            <option value="4">⭐⭐⭐⭐ 4 (Çok İyi)</option>
+                                            <option value="3">⭐⭐⭐ 3 (İyi)</option>
+                                            <option value="2">⭐⭐ 2 (Orta)</option>
+                                            <option value="1">⭐ 1 (Kötü)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-md-6">
+                                        <label class="form-label small fw-semibold text-muted mb-1" for="comment-<?= (int)$appointment['id'] ?>">İşletme hakkında yorumunuz</label>
+                                        <input type="text" class="form-control" id="comment-<?= (int)$appointment['id'] ?>" name="comment" maxlength="2000" placeholder="Deneyiminizi kısaca paylaşın..." style="height: 42px;">
+                                    </div>
+                                    <div class="col-12 col-md-3">
+                                        <button class="customer-button w-100" type="submit" style="height: 42px;">
+                                            <i class="fa-solid fa-paper-plane me-1"></i> Yorumu Gönder
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
                     <?php endif; ?>
                 <?php endif; ?>
             </article>

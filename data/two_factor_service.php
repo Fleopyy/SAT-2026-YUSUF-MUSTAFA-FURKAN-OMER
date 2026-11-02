@@ -1,8 +1,13 @@
 <?php
+// BİTİRAS — İki Aşamalı Doğrulama (2FA) ve Risk Bazlı Cihaz Tanıma Servisi
+// TOTP (RFC 6238), E-Posta OTP, Kurtarma Kodları ve Güvenilir Cihaz Yönetimi
 
 require_once __DIR__ . '/security.php';
 require_once __DIR__ . '/mail_service.php';
 
+// =========================================================================
+// 1. TOTP (RFC 6238) - Pure PHP Time-Based One-Time Password Implementation
+// =========================================================================
 
 function generateTotpSecret(int $byteCount = 16): string {
     $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
@@ -107,6 +112,9 @@ function verifyAndConsumeRecoveryCode(PDO $pdo, int $adminId, string $inputCode)
     return false;
 }
 
+// =========================================================================
+// 2. E-Posta 2FA Kodları (Admin & İşletme)
+// =========================================================================
 
 function sendAdmin2faEmail(int $adminId, string $email, string $fullName): bool {
     try {
@@ -150,6 +158,7 @@ function sendAdmin2faEmail(int $adminId, string $email, string $fullName): bool 
         'Bu giriş girişimini siz yapmadıysanız lütfen derhal sistem yöneticisi ile iletişime geçin ve parolanızı değiştirin.'
     );
 
+    // Gmail'in önceki maillerle birleştirmesini (thread) önlemek için konuya saat:dakika eklenir
     $subject = 'BİTİRAS — Yönetici 2FA Giriş Kodu [' . date('H:i') . ']';
     $mailAccepted = dispatchAccountMail($email, $fullName, $subject, $html, 'admin_2fa_' . $adminId . '_' . time(), 'admin_2fa');
     return $mailAccepted;
@@ -166,6 +175,7 @@ function verifyAdmin2faCode(int $adminId, string $inputCode): array {
     if ($attempt->rowCount() !== 1) return ['success'=>false, 'message'=>'Deneme siniri asildi.'];
 
 
+    // Girdi temizleme: Boşlukları ve görünmez karakterleri yok et
     $raw = trim($inputCode);
     $cleanNumeric = preg_replace('/\D/', '', $raw);
     if (empty($raw)) {
@@ -185,8 +195,10 @@ function verifyAdmin2faCode(int $adminId, string $inputCode): array {
         return ['success' => false, 'message' => 'Çok fazla hatalı deneme yapıldı. Güvenliğiniz için lütfen yeniden giriş yapın.'];
     }
 
+    // Aday kodlar (Temiz 6 hane, ham metin, büyük harf)
     $candidates = array_unique(array_filter([$cleanNumeric, $raw, strtoupper($raw)]));
 
+    // 1. Try TOTP Code if secret exists
     if (!empty($admin['totp_gizli_anahtar'])) {
         foreach ($candidates as $cand) {
             $slice = matchingTotpTimeSlice($admin['totp_gizli_anahtar'], $cand);
@@ -199,15 +211,18 @@ function verifyAdmin2faCode(int $adminId, string $inputCode): array {
         }
     }
 
+    // 2. Try Recovery Code
     foreach ($candidates as $cand) {
         if (str_contains($cand, '-') && verifyAndConsumeRecoveryCode($pdo, $adminId, $cand)) {
             return ['success' => true, 'message' => 'Kurtarma kodu ile giriş başarılı. Lütfen yeni kurtarma kodları oluşturun.'];
         }
     }
 
+    // 3. Try Email 2FA Code
     $now = time();
     $matched = false;
 
+    // DB'deki aktif kod kontrolü
     if (!empty($admin['eposta_2fa_kod_hash']) && !empty($admin['eposta_2fa_son_tarih'])) {
         $expiryTime = strtotime($admin['eposta_2fa_son_tarih']);
         if ($expiryTime >= $now) {
@@ -333,6 +348,9 @@ function verifyBarber2faCode(int $barberId, string $inputCode): array {
     return ['success' => false, 'message' => 'Girdiğiniz doğrulama kodu hatalı.'];
 }
 
+// =========================================================================
+// 3. Risk Bazlı Cihaz Tanıma & Güvenilir Cihazlar (guvenilir_cihazlar)
+// =========================================================================
 
 function getDeviceCookieName(): string {
     return 'bitiras_device_token';
@@ -399,6 +417,12 @@ function registerTrustedDevice(string $userType, int $userId, int $validDays = 3
     return $token;
 }
 
+/**
+ * Risk-based analysis for Barber Login.
+ * Conditions requiring 2FA:
+ * 1. Untrusted or new device (cookie token not recognized in guvenilir_cihazlar)
+ * 2. Inactive account (no login in the last 14 days)
+ */
 function evaluateBarberLoginRisk(array $barber): array {
     $barberId = (int)$barber['id'];
     $trusted = isTrustedDevice('isletme', $barberId);
@@ -465,6 +489,7 @@ function sendLoginSecurityAlert(string $userType, int $userId, string $email, st
     }
 }
 
+// Called only after password verification and active-account checks.
 function completeBarberPasswordLogin(array $barber, string $loginInput, string $destination): void {
     global $pdo;
     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
@@ -491,6 +516,7 @@ function completeBarberPasswordLogin(array $barber, string $loginInput, string $
         header('Location: /isletme/giris.php?step=2fa');
         exit;
     } else {
+        // Güvenilir cihaz doğrudan giriş
         renewAuthenticatedSession('barber', $barber['sifre_hash']);
         unset($_SESSION['admin_id'], $_SESSION['admin_role'], $_SESSION['admin_name']);
         unset($_SESSION['manager_id'], $_SESSION['manager_role'], $_SESSION['manager_name']);

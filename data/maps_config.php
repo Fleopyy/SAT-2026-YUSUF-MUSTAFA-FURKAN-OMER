@@ -1,4 +1,5 @@
 <?php
+// Pure maps configuration loader; never outputs secrets or performs network requests.
 
 function mapsSettings(?array $local = null, ?callable $environment = null): array
 {
@@ -17,6 +18,7 @@ function mapsSettings(?array $local = null, ?callable $environment = null): arra
         $apiKey = $local['google_maps_api_key'] ?? '';
     }
 
+    // Fallback: check database site_ayarlari if available
     if ($apiKey === '' && isset($GLOBALS['pdo'])) {
         try {
             $stmt = $GLOBALS['pdo']->prepare("SELECT deger FROM site_ayarlari WHERE anahtar = 'google_maps_api_key' LIMIT 1");
@@ -26,6 +28,7 @@ function mapsSettings(?array $local = null, ?callable $environment = null): arra
                 $apiKey = trim($dbKey);
             }
         } catch (Throwable) {
+            // Silently continue if database is not reachable yet
         }
     }
 
@@ -40,6 +43,11 @@ function mapsSettings(?array $local = null, ?callable $environment = null): arra
     ];
 }
 
+/**
+ * Validates decimal latitude and longitude boundaries.
+ * Latitude must be within [-90.0, 90.0]
+ * Longitude must be within [-180.0, 180.0]
+ */
 function isValidCoordinate(?float $lat, ?float $lng): bool
 {
     if ($lat === null || $lng === null) {

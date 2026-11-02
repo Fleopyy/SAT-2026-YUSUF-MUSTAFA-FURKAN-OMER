@@ -13,6 +13,15 @@ $pageSubtitle = 'Panelde yöneticiler tarafından gerçekleştirilen tüm kritik
 $actionFilter = trim($_GET['action_type'] ?? '');
 $search = trim($_GET['q'] ?? '');
 
+// 30 günden eski kayıtları otomatik sil
+try {
+    $pdo->exec("DELETE FROM islem_gunlukleri WHERE olusturulma_tarihi < DATE_SUB(NOW(), INTERVAL 30 DAY)");
+} catch (Exception $e) {}
+
+$page = max(1, (int)($_GET['sayfa'] ?? 1));
+$perPage = 50;
+$offset = ($page - 1) * $perPage;
+
 $where = [];
 $params = [];
 
@@ -28,12 +37,28 @@ if (!empty($search)) {
 }
 
 $whereSql = !empty($where) ? "WHERE " . implode(" AND ", $where) : "";
+
+// Toplam kayıt sayısı
+$totalCount = 0;
+try {
+    $countSql = "SELECT COUNT(*) FROM islem_gunlukleri l LEFT JOIN yoneticiler y ON l.yonetici_id = y.id {$whereSql}";
+    $countStmt = $pdo->prepare($countSql);
+    $countStmt->execute($params);
+    $totalCount = (int)$countStmt->fetchColumn();
+} catch (Exception $e) {}
+
+$totalPages = max(1, (int)ceil($totalCount / $perPage));
+if ($page > $totalPages) {
+    $page = $totalPages;
+    $offset = ($page - 1) * $perPage;
+}
+
 $sql = "SELECT l.*, y.ad_soyad AS yonetici_adi, y.rol AS yonetici_rol
         FROM islem_gunlukleri l
         LEFT JOIN yoneticiler y ON l.yonetici_id = y.id
         {$whereSql}
         ORDER BY l.olusturulma_tarihi DESC
-        LIMIT 100";
+        LIMIT {$perPage} OFFSET {$offset}";
 
 $logs = [];
 try {
@@ -41,6 +66,13 @@ try {
     $stmt->execute($params);
     $logs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
+
+function pageUrl($p, $act, $q) {
+    $params = ['sayfa' => $p];
+    if (!empty($act)) $params['action_type'] = $act;
+    if (!empty($q)) $params['q'] = $q;
+    return '?' . http_build_query($params);
+}
 
                                         
 $actionTypes = [];
@@ -78,7 +110,7 @@ include __DIR__ . '/../includes/header.php';
         </form>
 
         <div style="font-size:13px;color:var(--admin-text-muted);">
-            Son <strong><?= count($logs) ?></strong> işlem kaydı listeleniyor.
+            Toplam <strong><?= $totalCount ?></strong> kayıttan <strong><?= count($logs) ?></strong> tanesi listeleniyor (Sayfa <?= $page ?> / <?= $totalPages ?>).
         </div>
     </div>
 </div>
@@ -150,6 +182,66 @@ include __DIR__ . '/../includes/header.php';
                     </tbody>
                 </table>
             </div>
+
+            <!-- Sayfalama (Pagination) -->
+            <?php if ($totalPages > 1): ?>
+            <div style="padding:16px 20px;border-top:1px solid #E2E8F0;display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;">
+                <!-- Önceki -->
+                <?php if ($page > 1): ?>
+                    <a href="<?= pageUrl($page - 1, $actionFilter, $search) ?>"
+                       style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;border:1px solid #E2E8F0;background:#fff;color:var(--admin-text);font-size:13px;font-weight:600;text-decoration:none;"
+                       onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='#fff'">
+                        <i class="fa-solid fa-chevron-left" style="font-size:11px;"></i>
+                    </a>
+                <?php else: ?>
+                    <span style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;border:1px solid #E2E8F0;background:#F8FAFC;color:#CBD5E1;cursor:not-allowed;">
+                        <i class="fa-solid fa-chevron-left" style="font-size:11px;"></i>
+                    </span>
+                <?php endif; ?>
+
+                <!-- Sayfa numaraları -->
+                <?php
+                $pagesToShow = [1];
+                for ($i = max(2, $page - 2); $i <= min($totalPages - 1, $page + 2); $i++) {
+                    $pagesToShow[] = $i;
+                }
+                if ($totalPages > 1) $pagesToShow[] = $totalPages;
+                $pagesToShow = array_unique($pagesToShow);
+                sort($pagesToShow);
+                $prev = null;
+                foreach ($pagesToShow as $pn):
+                ?>
+                    <?php if ($prev !== null && $pn - $prev > 1): ?>
+                        <span style="color:#94A3B8;font-size:14px;padding:0 2px;">…</span>
+                    <?php endif; ?>
+                    <?php if ($pn === $page): ?>
+                        <span style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;padding:0 8px;border-radius:8px;background:var(--admin-accent);color:#fff;font-size:13px;font-weight:700;">
+                            <?= $pn ?>
+                        </span>
+                    <?php else: ?>
+                        <a href="<?= pageUrl($pn, $actionFilter, $search) ?>"
+                           style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:36px;padding:0 8px;border-radius:8px;border:1px solid #E2E8F0;background:#fff;color:var(--admin-text);font-size:13px;font-weight:600;text-decoration:none;"
+                           onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='#fff'">
+                            <?= $pn ?>
+                        </a>
+                    <?php endif; ?>
+                <?php $prev = $pn; endforeach; ?>
+
+                <!-- Sonraki -->
+                <?php if ($page < $totalPages): ?>
+                    <a href="<?= pageUrl($page + 1, $actionFilter, $search) ?>"
+                       style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;border:1px solid #E2E8F0;background:#fff;color:var(--admin-text);font-size:13px;font-weight:600;text-decoration:none;"
+                       onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='#fff'">
+                        <i class="fa-solid fa-chevron-right" style="font-size:11px;"></i>
+                    </a>
+                <?php else: ?>
+                    <span style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;border:1px solid #E2E8F0;background:#F8FAFC;color:#CBD5E1;cursor:not-allowed;">
+                        <i class="fa-solid fa-chevron-right" style="font-size:11px;"></i>
+                    </span>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+
         <?php endif; ?>
     </div>
 </div>

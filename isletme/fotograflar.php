@@ -77,6 +77,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             if (!$stmt->fetchColumn()) {
                 throw new RuntimeException('Fotoğraf bu işletmeye ait değil.');
             }
+            // Zaten seçili mi kontrol et (toggle)
             $checkStmt = $pdo->prepare('SELECT profil_fotograf_id, kapak_fotograf_id FROM isletme_panel_medya WHERE isletme_id = ?');
             $checkStmt->execute([$businessId]);
             $currentMedia = $checkStmt->fetch(PDO::FETCH_ASSOC);
@@ -85,6 +86,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 ($slot === 'cover'   && (int)($currentMedia['kapak_fotograf_id']  ?? 0) === $photoId)
             );
             if ($isAlreadySet || $action === 'unfeature') {
+                // Kaldır (NULL yap)
                 $col = $slot === 'profile' ? 'profil_fotograf_id' : 'kapak_fotograf_id';
                 $pdo->prepare("INSERT INTO isletme_panel_medya (isletme_id, profil_fotograf_id, kapak_fotograf_id)
                                VALUES (?, ?, ?)
@@ -92,6 +94,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     ->execute([$businessId, $slot === 'profile' ? null : null, $slot === 'cover' ? null : null]);
                 businessFlash('success', $slot === 'profile' ? 'Profil fotoğrafı kaldırıldı.' : 'Kapak fotoğrafı kaldırıldı.');
             } else {
+                // Ayarla
                 $pdo->prepare('INSERT INTO isletme_panel_medya (isletme_id, profil_fotograf_id, kapak_fotograf_id)
                                VALUES (?, ?, ?)
                                ON DUPLICATE KEY UPDATE ' . ($slot === 'profile' ? 'profil_fotograf_id = VALUES(profil_fotograf_id)' : 'kapak_fotograf_id = VALUES(kapak_fotograf_id)'))

@@ -35,6 +35,7 @@ try {
     $photos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {}
 
+/* ── Fotoğrafları işletme bazında grupla ── */
 $grouped = [];
 foreach ($photos as $photo) {
     $bizId = (int)$photo['isletme_id'];

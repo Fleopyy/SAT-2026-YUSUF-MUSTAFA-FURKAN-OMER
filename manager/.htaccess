@@ -1,3 +1,6 @@
+# ============================================================
+# BiTıraş.com — Manager Panel Güvenlik ve URL Yönlendirmeleri
+# ============================================================
 
 Options -Indexes +FollowSymLinks
 RewriteEngine On

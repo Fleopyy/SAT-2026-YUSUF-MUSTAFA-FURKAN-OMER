@@ -6,6 +6,27 @@ $stmt->execute([$businessId]);
 $unreadBusinessNotifications = (int)$stmt->fetchColumn();
 $businessFlashMessage = $_SESSION['business_flash'] ?? null;
 unset($_SESSION['business_flash']);
+
+$businessProfilePhoto = $business['profil_fotografi'] ?? null;
+if (empty($businessProfilePhoto) && !empty($businessId)) {
+    try {
+        $stmtPhoto = $pdo->prepare('SELECT f.fotograf_yolu 
+                                    FROM isletme_panel_medya m 
+                                    JOIN isletme_fotograflari f ON f.id = m.profil_fotograf_id AND f.isletme_id = m.isletme_id 
+                                    WHERE m.isletme_id = ?');
+        $stmtPhoto->execute([$businessId]);
+        $businessProfilePhoto = $stmtPhoto->fetchColumn() ?: null;
+        if (!$businessProfilePhoto) {
+            $stmtFallback = $pdo->prepare('SELECT f.fotograf_yolu 
+                                           FROM isletme_fotograflari f 
+                                           LEFT JOIN isletme_fotograf_siralama s ON s.fotograf_id = f.id AND s.isletme_id = f.isletme_id 
+                                           WHERE f.isletme_id = ? 
+                                           ORDER BY s.sira ASC, f.id ASC LIMIT 1');
+            $stmtFallback->execute([$businessId]);
+            $businessProfilePhoto = $stmtFallback->fetchColumn() ?: null;
+        }
+    } catch (Throwable $e) {}
+}
 ?>
 <!DOCTYPE html>
 <html lang="tr">
@@ -40,6 +61,7 @@ unset($_SESSION['business_flash']);
         .business-notice.info { background:#EFF6FF; color:#1E40AF; border:1px solid #BFDBFE; }
         .business-topbar-name { max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
+        /* --- Unified Buttons & Inputs --- */
         .admin-form input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
         .admin-form select {
             height: var(--input-height);
@@ -145,6 +167,7 @@ unset($_SESSION['business_flash']);
             transform: translateY(-1px);
         }
 
+        /* --- Filter Bars --- */
         .business-filter-form {
             display: flex;
             align-items: flex-end;
@@ -167,6 +190,7 @@ unset($_SESSION['business_flash']);
             height: var(--btn-height);
         }
 
+        /* --- Form Labels Height & Subtext Alignment --- */
         .admin-form .form-group {
             margin: 0;
             display: flex;
@@ -196,6 +220,7 @@ unset($_SESSION['business_flash']);
             margin-left: 4px;
         }
 
+        /* --- Service Checkbox Pills (Close to button/checkbox) --- */
         .services-checkbox-list {
             display: flex;
             flex-wrap: wrap;
@@ -240,6 +265,7 @@ unset($_SESSION['business_flash']);
             font-weight: 700 !important;
         }
 
+        /* --- 4-Parameter Grid for Employee Add --- */
         .business-employee-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -257,6 +283,7 @@ unset($_SESSION['business_flash']);
             }
         }
 
+        /* --- Custom Modern File Upload Box --- */
         .custom-file-box {
             position: relative;
             width: 100%;
@@ -338,6 +365,7 @@ unset($_SESSION['business_flash']);
             color: var(--admin-accent);
         }
 
+        /* --- Photo Upload Row --- */
         .business-file-upload-row {
             display: flex;
             align-items: flex-end;
@@ -358,6 +386,7 @@ unset($_SESSION['business_flash']);
             padding: 0 24px;
         }
 
+        /* --- Çalışma Saatleri (Schedule) Styles --- */
         .schedule-hero-banner {
             display: flex;
             align-items: center;
@@ -734,7 +763,13 @@ unset($_SESSION['business_flash']);
         </nav>
         <div class="sidebar-footer">
             <div class="sidebar-user">
-                <div class="avatar"><?= businessEscape(mb_strtoupper(mb_substr($business['isletme_adi'], 0, 1, 'UTF-8'), 'UTF-8')) ?></div>
+                <div class="avatar" style="overflow:hidden;padding:0;background:<?= !empty($businessProfilePhoto) ? '#1E293B' : 'linear-gradient(135deg, #C28840, #A66E2C)' ?>;">
+                    <?php if (!empty($businessProfilePhoto)): ?>
+                        <img src="/<?= businessEscape(ltrim($businessProfilePhoto, '/')) ?>" alt="<?= businessEscape($business['isletme_adi']) ?>" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit;" onerror="this.onerror=null;this.parentElement.innerHTML='<?= businessEscape(mb_strtoupper(mb_substr($business['isletme_adi'], 0, 1, 'UTF-8'), 'UTF-8')) ?>';">
+                    <?php else: ?>
+                        <?= businessEscape(mb_strtoupper(mb_substr($business['isletme_adi'], 0, 1, 'UTF-8'), 'UTF-8')) ?>
+                    <?php endif; ?>
+                </div>
                 <div class="user-info"><strong><?= businessEscape($business['isletme_adi']) ?></strong><small>Aktif işletme</small></div>
             </div>
             <form method="POST" action="/isletme/cikis.php" class="logout-form" style="margin-top:8px;">

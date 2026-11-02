@@ -462,6 +462,7 @@ function toggleDayStatus(day, isChecked) {
         inputs.forEach(el => {
             el.disabled = false;
         });
+        // Check if all start/end inputs are empty, populate default 09:00 - 20:00
         const startInput = card.querySelector('input[name*="[start]"]');
         const endInput = card.querySelector('input[name*="[end]"]');
         if (startInput && !startInput.value) startInput.value = '09:00';
@@ -483,6 +484,7 @@ function removeScheduleRow(btn, day) {
     if (rows.length > 1) {
         btn.closest('.schedule-row-item').remove();
     } else {
+        // Only 1 row left: clear its inputs and toggle day closed
         const toggle = document.querySelector('.day-toggle-cb[data-day="' + day + '"]');
         if (toggle && toggle.checked) {
             toggle.checked = false;

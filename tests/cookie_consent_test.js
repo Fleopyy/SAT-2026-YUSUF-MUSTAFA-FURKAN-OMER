@@ -1,3 +1,4 @@
+// Run only the real consent controller in a VM; no browser, network or storage writes.
 const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert/strict');

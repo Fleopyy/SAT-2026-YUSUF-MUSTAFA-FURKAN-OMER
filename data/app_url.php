@@ -1,4 +1,5 @@
 <?php
+// Deployment configuration only: never trust Host or forwarded request headers.
 function getSiteBaseUrl(): string {
     $environment = getenv('APP_ENV');
     $environment = ($environment === false || $environment === '') ? 'development' : $environment;
@@ -10,6 +11,7 @@ function getSiteBaseUrl(): string {
         if ($environment === 'production') {
             throw new RuntimeException('APP_BASE_URL is required in production.');
         }
+        // Local XAMPP requests keep working, even with a poisoned Host header.
         $loopback = ['127.0.0.1', '::1'];
         if ((in_array($_SERVER['SERVER_ADDR'] ?? '', $loopback, true)
             && in_array($_SERVER['REMOTE_ADDR'] ?? '', $loopback, true))
@@ -18,6 +20,7 @@ function getSiteBaseUrl(): string {
             if (!ctype_digit($port) || (int)$port < 1 || (int)$port > 65535) {
                 throw new RuntimeException('Invalid local application port.');
             }
+            // Derive the mount path from server filesystem configuration, not request headers/URI.
             $path = '';
             $documentRoot = realpath($_SERVER['DOCUMENT_ROOT'] ?? '');
             $applicationRoot = str_replace('\\', '/', dirname(__DIR__));

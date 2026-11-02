@@ -1,12 +1,17 @@
 <?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 require_once __DIR__ . '/data/security.php';
 require_once __DIR__ . '/data/customer_auth_service.php';
 require_once __DIR__ . '/data/two_factor_service.php';
 
+$csrfToken = generateCsrfToken();
+
 if (($_GET['action'] ?? '') === 'logout') {
     http_response_code(405);
     header('Allow: POST');
-    exit('??k?? i?in POST iste?i gereklidir.');
+    exit('Çıkış için POST isteği gereklidir.');
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') === 'logout') {
@@ -18,11 +23,35 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && ($_POST['action'] ?? '') ==
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
-    requireCsrf();
+    $submittedToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    $sessionToken   = $_SESSION['csrf_token'] ?? '';
+
+    if (empty($submittedToken) || empty($sessionToken) || !hash_equals($sessionToken, $submittedToken)) {
+        $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest')
+               || (strpos($_SERVER['HTTP_ACCEPT'] ?? '', 'application/json') !== false);
+
+        if ($isAjax) {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['success' => false, 'message' => 'Geçersiz güvenlik tokeni (CSRF). Lütfen sayfayı yenileyip tekrar deneyin.']);
+            exit;
+        }
+
+        $_SESSION['mesaj'] = 'Güvenlik doğrulaması (CSRF) zaman aşımına uğradı veya geçersiz. Lütfen sayfayı yenileyip tekrar deneyin.';
+        $_SESSION['mesaj_turu'] = 'danger';
+
+        $action = (string)($_POST['action'] ?? '');
+        $redirectUrl = 'index.php?login=customer';
+        if (str_contains($action, 'barber')) {
+            $redirectUrl = 'index.php?login=barber';
+        }
+        header("Location: " . $redirectUrl);
+        exit;
+    }
     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
     if (!checkLoginRateLimit($ip)) {
         http_response_code(429);
-        exit('?ok fazla deneme. 15 dakika sonra tekrar deneyin.');
+        exit('Çok fazla deneme. 15 dakika sonra tekrar deneyin.');
     }
     $attemptSuccessful = false;
     $action = $_POST['action'] ?? '';
@@ -100,6 +129,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         $stmtLog->execute([$newUserId, "Müşteri kaydında KVKK metni onaylandı. Pazarlama izni: " . ($pazarlamaOnay ? 'Evet' : 'Hayır'), $ip]);
                     } catch (Throwable $e) {}
 
+                    // Kayıt sonrası otomatik e-posta doğrulama kodu gönder
                     $verificationAccepted = sendCustomerVerificationEmail($newUserId, $email, $fullName);
 
                     renewAuthenticatedSession('user', $hash);
@@ -276,6 +306,20 @@ if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
                 </div>
 
                 <div class="modal-body p-4">
+                    <?php 
+                    $isAuthModalActive = !empty($_GET['login']) || !empty($_GET['register']);
+                    $modalMsg = $isAuthModalActive ? ($flashMessage ?? $_SESSION['mesaj'] ?? null) : null;
+                    $modalMsgType = $flashMessageType ?? $_SESSION['mesaj_turu'] ?? 'danger';
+                    ?>
+                    <?php if (!empty($modalMsg)): ?>
+                        <div class="alert alert-<?= htmlspecialchars($modalMsgType, ENT_QUOTES, 'UTF-8') ?> alert-dismissible fade show mb-3" role="alert">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="fa-solid <?= $modalMsgType === 'danger' ? 'fa-triangle-exclamation' : ($modalMsgType === 'success' ? 'fa-circle-check' : 'fa-circle-info') ?>"></i>
+                                <span><?= htmlspecialchars($modalMsg, ENT_QUOTES, 'UTF-8') ?></span>
+                            </div>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Kapat"></button>
+                        </div>
+                    <?php endif; ?>
                     <div class="tab-content" id="rolePillsContent">
 
 
@@ -319,8 +363,16 @@ if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
                                                     class="text-xs fw-bold" style="color: var(--accent);">Şifremi
                                                     Unuttum?</a>
                                             </div>
-                                            <input type="password" id="custLoginPass" name="sifre" required
-                                                placeholder="••••••••" class="form-control form-control-lg fs-6">
+                                            <div class="input-group">
+                                                <input type="password" id="custLoginPass" name="sifre" required
+                                                    placeholder="••••••••" class="form-control form-control-lg fs-6"
+                                                    autocomplete="current-password">
+                                                <button class="btn btn-outline-secondary" type="button"
+                                                    onclick="togglePassVis('custLoginPass', this)" tabindex="-1"
+                                                    aria-label="Şifreyi göster/gizle">
+                                                    <i class="fa-solid fa-eye"></i>
+                                                </button>
+                                            </div>
                                         </div>
 
                                         <button type="submit" class="btn btn-primary btn-lg w-100 fs-6 py-3 mt-2">
@@ -797,8 +849,16 @@ if (file_exists(__DIR__ . '/data/turkey_districts.json')) {
                                                     class="text-xs fw-bold" style="color: var(--accent);">Şifremi
                                                     Unuttum?</a>
                                             </div>
-                                            <input type="password" id="barberLoginPass" name="sifre" required
-                                                placeholder="••••••••" class="form-control form-control-lg fs-6">
+                                            <div class="input-group">
+                                                <input type="password" id="barberLoginPass" name="sifre" required
+                                                    placeholder="••••••••" class="form-control form-control-lg fs-6"
+                                                    autocomplete="current-password">
+                                                <button class="btn btn-outline-secondary" type="button"
+                                                    onclick="togglePassVis('barberLoginPass', this)" tabindex="-1"
+                                                    aria-label="Şifreyi göster/gizle">
+                                                    <i class="fa-solid fa-eye"></i>
+                                                </button>
+                                            </div>
                                         </div>
 
                                         <button type="submit" class="btn btn-dark btn-lg w-100 fs-6 py-3 mt-2">

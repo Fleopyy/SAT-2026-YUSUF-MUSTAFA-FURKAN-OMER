@@ -1,4 +1,5 @@
 <?php
+// Maintenance and test tools must never run through HTTP.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -25,6 +26,7 @@ function assertTest(string $desc, bool $condition): void {
 
 $stmt = $pdo->query("SELECT * FROM yoneticiler WHERE rol = 'admin' AND aktif = 1 LIMIT 1");
 $admin = $stmt->fetch(PDO::FETCH_ASSOC);
+$adminPwdVer = hash('sha256', $admin['sifre_hash'] ?? '');
 assertTest("Süper Admin hesabı mevcut", !empty($admin));
 
 if (!$admin) {
@@ -57,20 +59,22 @@ $approveScript = "<?php
 session_start();
 \$_SESSION['admin_id'] = {$admin['id']};
 \$_SESSION['admin_role'] = 'admin';
+\$_SESSION['admin_password_version'] = '{$adminPwdVer}';
 \$_SESSION['admin_name'] = '{$admin['ad_soyad']}';
+\$_SESSION['admin_password_version'] = '{$adminPwdVer}';
 \$_SESSION['csrf_token'] = '{$csrfToken}';
 \$_POST = [
     'csrf_token' => '{$csrfToken}',
     'action' => 'approve',
     'business_id' => {$testBusinessId}
 ];
-require 'c:/Users/Pc/Desktop/satgeliştirmeadminpanel/admin/actions/application_action.php';
+require 'c:/xampp/htdocs/admin/actions/application_action.php';
 ";
 
 $tmpFile = __DIR__ . '/temp_approve_test.php';
 file_put_contents($tmpFile, $approveScript);
 
-exec("C:\\xampp\\php\\php.exe " . escapeshellarg($tmpFile), $outApprove, $retApprove);
+exec("C:\\xampp\\php\\php.exe " . escapeshellarg($tmpFile) . " 2>&1", $outApprove, $retApprove);
 @unlink($tmpFile);
 
 $rawApproveOut = implode("\n", $outApprove);
@@ -106,13 +110,14 @@ $suspendScript = "<?php
 session_start();
 \$_SESSION['admin_id'] = {$admin['id']};
 \$_SESSION['admin_role'] = 'admin';
+\$_SESSION['admin_password_version'] = '{$adminPwdVer}';
 \$_SESSION['csrf_token'] = '{$csrfToken}';
 \$_POST = [
     'csrf_token' => '{$csrfToken}',
     'action' => 'suspend',
     'business_id' => {$testBusinessId}
 ];
-require 'c:/Users/Pc/Desktop/satgeliştirmeadminpanel/admin/actions/application_action.php';
+require 'c:/xampp/htdocs/admin/actions/application_action.php';
 ";
 file_put_contents($tmpFile, $suspendScript);
 exec("C:\\xampp\\php\\php.exe " . escapeshellarg($tmpFile), $outSuspend, $retSuspend);
@@ -125,6 +130,8 @@ $stmt = $pdo->prepare("SELECT durum FROM isletmeler WHERE id = ?");
 $stmt->execute([$testBusinessId]);
 assertTest("İşletme durumu 'suspended' oldu", $stmt->fetchColumn() === 'suspended');
 
+$pdo->prepare("UPDATE isletmeler SET durum = 'pending' WHERE id = ?")->execute([$testBusinessId]);
+
 $rejectScript = "<?php
 \$_SERVER['REQUEST_METHOD'] = 'POST';
 \$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
@@ -132,6 +139,7 @@ $rejectScript = "<?php
 session_start();
 \$_SESSION['admin_id'] = {$admin['id']};
 \$_SESSION['admin_role'] = 'admin';
+\$_SESSION['admin_password_version'] = '{$adminPwdVer}';
 \$_SESSION['csrf_token'] = '{$csrfToken}';
 \$_POST = [
     'csrf_token' => '{$csrfToken}',
@@ -139,7 +147,7 @@ session_start();
     'business_id' => {$testBusinessId},
     'red_gerekce' => 'Eksik işletme belgeleri ve doğrulanamayan telefon numarası.'
 ];
-require 'c:/Users/Pc/Desktop/satgeliştirmeadminpanel/admin/actions/application_action.php';
+require 'c:/xampp/htdocs/admin/actions/application_action.php';
 ";
 file_put_contents($tmpFile, $rejectScript);
 exec("C:\\xampp\\php\\php.exe " . escapeshellarg($tmpFile), $outReject, $retReject);
@@ -160,6 +168,7 @@ $businessEditScript = "<?php
 session_start();
 \$_SESSION['admin_id'] = {$admin['id']};
 \$_SESSION['admin_role'] = 'admin';
+\$_SESSION['admin_password_version'] = '{$adminPwdVer}';
 \$_SESSION['csrf_token'] = '{$csrfToken}';
 \$_POST = [
     'csrf_token' => '{$csrfToken}',
@@ -175,7 +184,7 @@ session_start();
     'aciklama' => 'Güncellenmiş açıklama',
     'durum' => 'active'
 ];
-require 'c:/Users/Pc/Desktop/satgeliştirmeadminpanel/admin/actions/business_action.php';
+require 'c:/xampp/htdocs/admin/actions/business_action.php';
 ";
 file_put_contents($tmpFile, $businessEditScript);
 exec("C:\\xampp\\php\\php.exe " . escapeshellarg($tmpFile), $outBusEdit, $retBusEdit);
@@ -202,13 +211,14 @@ $aptScript = "<?php
 session_start();
 \$_SESSION['admin_id'] = {$admin['id']};
 \$_SESSION['admin_role'] = 'admin';
+\$_SESSION['admin_password_version'] = '{$adminPwdVer}';
 \$_SESSION['csrf_token'] = '{$csrfToken}';
 \$_POST = [
     'csrf_token' => '{$csrfToken}',
     'appointment_id' => {$testAptId},
     'status' => 'confirmed'
 ];
-require 'c:/Users/Pc/Desktop/satgeliştirmeadminpanel/admin/actions/appointment_action.php';
+require 'c:/xampp/htdocs/admin/actions/appointment_action.php';
 ";
 file_put_contents($tmpFile, $aptScript);
 exec("C:\\xampp\\php\\php.exe " . escapeshellarg($tmpFile), $outApt, $retApt);
@@ -230,13 +240,14 @@ $settingsScript = "<?php
 session_start();
 \$_SESSION['admin_id'] = {$admin['id']};
 \$_SESSION['admin_role'] = 'admin';
+\$_SESSION['admin_password_version'] = '{$adminPwdVer}';
 \$_SESSION['csrf_token'] = '{$csrfToken}';
 \$_POST = [
     'csrf_token' => '{$csrfToken}',
     'action' => 'save_settings',
     'site_baslik' => 'BiTıraş.com Test Başlık'
 ];
-require 'c:/Users/Pc/Desktop/satgeliştirmeadminpanel/admin/actions/settings_action.php';
+require 'c:/xampp/htdocs/admin/actions/settings_action.php';
 ";
 file_put_contents($tmpFile, $settingsScript);
 exec("C:\\xampp\\php\\php.exe " . escapeshellarg($tmpFile), $outSet, $retSet);
@@ -265,9 +276,11 @@ foreach ($adminPages as $pageName => $pageRelPath) {
 session_start();
 \$_SESSION['admin_id'] = {$admin['id']};
 \$_SESSION['admin_role'] = 'admin';
+\$_SESSION['admin_password_version'] = '{$adminPwdVer}';
 \$_SESSION['admin_name'] = '{$admin['ad_soyad']}';
+\$_SESSION['admin_password_version'] = '{$adminPwdVer}';
 ob_start();
-require 'c:/Users/Pc/Desktop/satgeliştirmeadminpanel/{$pageRelPath}';
+require 'c:/xampp/htdocs/{$pageRelPath}';
 \$html = ob_get_clean();
 if (strpos(\$html, 'Fatal error') !== false || strpos(\$html, 'Parse error') !== false) {
     echo 'FATAL_ERROR_FOUND';

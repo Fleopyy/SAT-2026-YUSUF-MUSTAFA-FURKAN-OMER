@@ -544,6 +544,7 @@ function getManagerAllowedBusinessIds(int $managerId): ?array {
    
                                                                   
    
+// A scope predicate is independent of the operation permission. null means all; [] means none.
 function currentBusinessScopeSql(string $column, array &$params): string {
     if (isCurrentUserAdmin()) return '1=1';
     if (!isCurrentUserManager()) return '1=0';

@@ -1,4 +1,5 @@
 <?php
+// Maintenance and test tools must never run through HTTP.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -24,6 +25,7 @@ try {
         }
     }
 
+    // Add indexes for filtering performance
     $indices = [
         'idx_isletme_vip' => "ALTER TABLE `isletmeler` ADD INDEX `idx_isletme_vip` (`is_vip`)",
         'idx_isletme_gece' => "ALTER TABLE `isletmeler` ADD INDEX `idx_isletme_gece` (`gece_acik`)",

@@ -1,4 +1,5 @@
 <?php
+// CLI only. Fake mail, session and database operations; no application bootstrap.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../data/app_url.php';
 require_once __DIR__ . '/../data/mail_service.php';
@@ -113,6 +114,7 @@ foreach (['isletme/giris.php', 'admin/login.php'] as $file) {
     verifyPriority(str_contains(file_get_contents($root . '/' . $file), 'completeBarberPasswordLogin('), 'entry point uses shared MFA');
 }
 
+// Execute the real upload action with fake dependencies to check its gates and rollback.
 function requirePermission($permission) { if (!$GLOBALS['permitted']) throw new PriorityExit('permission'); return []; }
 function verifyCsrfToken() { return $GLOBALS['csrf']; }
 function canAccessBusiness($id) { return $GLOBALS['access']; }

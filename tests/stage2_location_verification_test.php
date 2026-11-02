@@ -1,4 +1,5 @@
 <?php
+// Maintenance and test tools must never run through HTTP.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -20,6 +21,7 @@ function recordResult(int $num, string $question, string $status, string $detail
 $pdo->beginTransaction();
 
 try {
+    // Setup a clean test business with verified initial coordinates
     $suffix = bin2hex(random_bytes(4));
     $initialLat = 41.02854000;
     $initialLng = 29.11235000;
@@ -51,12 +53,17 @@ try {
     ]);
     $businessId = (int)$pdo->lastInsertId();
 
+    // Set authenticated barber session
     $_SESSION['barber_id'] = $businessId;
     $_SESSION['barber_role'] = 'barber';
     $_SESSION['barber_name'] = 'Doğrulama Berber';
     $_SESSION['user_role'] = 'barber';
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 
+    // -------------------------------------------------------------------------
+    // SENARYO 1 & 2: Adres değiştiğinde eski koordinatlar ve location_verified_at sıfırlanıyor mu?
+    // -------------------------------------------------------------------------
+    // The business changes their city to Ankara and district to Çankaya, but does NOT reconfirm map
     $_SERVER['REQUEST_METHOD'] = 'POST';
     $_POST = [
         'csrf_token'            => $_SESSION['csrf_token'],
@@ -83,6 +90,7 @@ try {
     require __DIR__ . '/../isletme/profil.php';
     ob_get_clean();
 
+    // Verify in database
     $stmt = $pdo->prepare("SELECT sehir, ilce, latitude, longitude, location_verified_at FROM isletmeler WHERE id = ?");
     $stmt->execute([$businessId]);
     $afterChange = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -108,9 +116,17 @@ try {
             : "HATA: location_verified_at sıfırlanmadı: {$afterChange['location_verified_at']}"
     );
 
+    // -------------------------------------------------------------------------
+    // SENARYO 3: İşletme yeni konumu onaylamadan müşteri profilinde eski konum doğrulanmış gösteriliyor mu?
+    // -------------------------------------------------------------------------
     $_SERVER['REQUEST_METHOD'] = 'GET';
     $_GET['id'] = (string)$businessId;
     unset($_SESSION['barber_id'], $_SESSION['barber_role']);
+    $_COOKIE['bitiras_cookie_consent'] = json_encode([
+        'version' => 1,
+        'functional' => true,
+        'updated_at' => date('c')
+    ]);
 
     ob_start();
     require __DIR__ . '/../berber.php';
@@ -130,6 +146,9 @@ try {
             : "HATA: Eski konum veya harita onaylanmadan müşteri profilinde gösterildi!"
     );
 
+    // -------------------------------------------------------------------------
+    // SENARYO 4: Profil formu ile AJAX uç noktası aynı veri ve mantığı kullanıyor mu?
+    // -------------------------------------------------------------------------
     $_SESSION['barber_id'] = $businessId;
     $_SESSION['barber_role'] = 'barber';
     $_SERVER['REQUEST_METHOD'] = 'POST';
@@ -137,6 +156,7 @@ try {
     $ankaraLat = 39.92077000;
     $ankaraLng = 32.85411000;
 
+    // Test AJAX save
     $_POST = [
         'csrf_token' => $_SESSION['csrf_token'],
         'latitude'   => (string)$ankaraLat,
@@ -152,6 +172,7 @@ try {
     $stmt->execute([$businessId]);
     $ajaxDbRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
+    // Both endpoints format decimals to 8 decimal places and update location_verified_at
     $ajaxDbLat = (float)$ajaxDbRow['latitude'];
     $ajaxDbLng = (float)$ajaxDbRow['longitude'];
     $ajaxMatches = (abs($ajaxDbLat - $ankaraLat) < 0.00001 && abs($ajaxDbLng - $ankaraLng) < 0.00001 && !empty($ajaxDbRow['location_verified_at']));
@@ -165,8 +186,14 @@ try {
             : "HATA: Veri uyuşmazlığı tespit edildi."
     );
 
+    // -------------------------------------------------------------------------
+    // SENARYO 5: API anahtarı HTML, JS veya yetkisiz AJAX yanıtlarında açığa çıkıyor mu?
+    // -------------------------------------------------------------------------
+    // Inspect customer profile page ($customerHtml)
     $keyInCustomerHtml = str_contains($customerHtml, 'AIzaSy');
+    // Inspect AJAX endpoint response
     $keyInAjaxResponse = str_contains($ajaxJson, 'AIzaSy') || str_contains($ajaxJson, 'api_key');
+    // Inspect public JS files
     $appJsContent = file_get_contents(__DIR__ . '/../app.js');
     $keyInAppJs = str_contains($appJsContent, 'AIzaSy') || str_contains($appJsContent, 'google_maps_api_key');
 
@@ -180,6 +207,10 @@ try {
             : "HATA: API anahtarı istemci tarafında tespit edildi!"
     );
 
+    // -------------------------------------------------------------------------
+    // SENARYO 6: site_ayarlari tablosundaki API anahtarına müşteri ve işletme hesapları erişebiliyor mu?
+    // -------------------------------------------------------------------------
+    // Check if customer portal or business panel have any queries on site_ayarlari
     $musteriFiles = glob(__DIR__ . '/../musteri/*.php');
     $isletmeFiles = glob(__DIR__ . '/../isletme/*.php');
     $foundInMusteri = false;
@@ -208,6 +239,10 @@ try {
             : "HATA: İşletme veya müşteri panelinde site_ayarlari tablosuna erişim tespit edildi."
     );
 
+    // -------------------------------------------------------------------------
+    // SENARYO 7: Google Maps anahtarı olmadığında OpenStreetMap üzerinden adres arama ve koordinat kaydetme çalışıyor mu?
+    // -------------------------------------------------------------------------
+    // Test OpenStreetMap Nominatim live geocoding response
     $osmQuery = "Cankaya, Ankara, Turkiye";
     $osmUrl = "https://nominatim.openstreetmap.org/search?format=json&q=" . urlencode($osmQuery);
     $ctx = stream_context_create([
@@ -220,6 +255,7 @@ try {
     $osmJson = $osmRes ? json_decode($osmRes, true) : null;
     $osmWorks = (!empty($osmJson) && isset($osmJson[0]['lat'], $osmJson[0]['lon']));
 
+    // Also verify that the coordinates returned by OSM can be saved
     if ($osmWorks) {
         $osmLat = (float)$osmJson[0]['lat'];
         $osmLng = (float)$osmJson[0]['lon'];
@@ -237,6 +273,9 @@ try {
             : "Ağ erişimi veya harita servisi yanıt vermedi."
     );
 
+    // -------------------------------------------------------------------------
+    // SENARYO 8: Geçersiz, eksik veya manipüle edilmiş koordinatlarla konum doğrulaması yapılabiliyor mu?
+    // -------------------------------------------------------------------------
     $invalidCases = [
         ['lat' => '95.1234', 'lng' => '29.1234', 'name' => 'Enlem > 90'],
         ['lat' => '-95.1234', 'lng' => '29.1234', 'name' => 'Enlem < -90'],
@@ -273,11 +312,16 @@ try {
             : "HATA: Bazı geçersiz koordinatlar kabul edildi!"
     );
 
+    // -------------------------------------------------------------------------
+    // SENARYO 9: İşletme hesabı başka bir işletmenin konumunu değiştirebiliyor mu? (IDOR)
+    // -------------------------------------------------------------------------
+    // Create another business B
     $stmt = $pdo->prepare("INSERT INTO isletmeler (isletme_sahibi, isletme_adi, telefon, eposta, sehir, ilce, latitude, longitude, sifre_hash, durum)
                            VALUES ('Hedef Berber', 'Hedef İşletme', '05361112233', 'target@bitiras.test', 'Bursa', 'Nilüfer', 40.21000000, 28.98000000, 'hash', 'active')");
     $stmt->execute();
     $targetBusinessId = (int)$pdo->lastInsertId();
 
+    // Logged in as $businessId, attempting to forge target_id in POST
     $_POST = [
         'csrf_token'  => $_SESSION['csrf_token'],
         'business_id' => (string)$targetBusinessId,
@@ -289,6 +333,7 @@ try {
     require __DIR__ . '/../isletme/konum_kaydet.php';
     ob_get_clean();
 
+    // Check target business B
     $stmt = $pdo->prepare("SELECT latitude, longitude FROM isletmeler WHERE id = ?");
     $stmt->execute([$targetBusinessId]);
     $targetRow = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -303,6 +348,10 @@ try {
             : "HATA: Başka bir işletmenin konumu değiştirildi (IDOR Açığı)!"
     );
 
+    // -------------------------------------------------------------------------
+    // SENARYO 10: Konum kaydedildikten sonra müşteri profilindeki adres, harita işaretçisi ve yol tarifi bağlantısı aynı koordinatları gösteriyor mu?
+    // -------------------------------------------------------------------------
+    // Save verified coordinates for $businessId
     $verifiedLat = 41.02854000;
     $verifiedLng = 29.11235000;
     $nowTime = date('Y-m-d H:i:s');
@@ -317,6 +366,11 @@ try {
     $_SERVER['REQUEST_METHOD'] = 'GET';
     $_GET['id'] = (string)$businessId;
     unset($_SESSION['barber_id'], $_SESSION['barber_role']);
+    $_COOKIE['bitiras_cookie_consent'] = json_encode([
+        'version' => 1,
+        'functional' => true,
+        'updated_at' => date('c')
+    ]);
 
     ob_start();
     require __DIR__ . '/../berber.php';

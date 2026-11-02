@@ -12,12 +12,14 @@ $error = '';
 $loginInput = '';
 $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
+// 2FA İptal
 if (($_GET['step'] ?? '') === 'cancel') {
     unset($_SESSION['2fa_pending']);
     header('Location: /isletme/giris.php');
     exit;
 }
 
+// 2FA Kodu Yeniden Gönder
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'resend_2fa') {
     if (!verifyCsrfToken()) {
         http_response_code(403);
@@ -52,6 +54,7 @@ unset($_SESSION['2fa_resend_flash']);
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $postAction = $_POST['action'] ?? 'login';
 
+    // 2FA KOD DOĞRULAMA ADIMI
     if ($postAction === 'verify_2fa') {
         if (!verifyCsrfToken()) {
             $error = 'Güvenlik doğrulaması başarısız oldu (CSRF). Sayfayı yenileyip tekrar deneyin.';
@@ -102,6 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     } else {
+        // İLK AŞAMA: E-POSTA VE ŞİFRE İLE GİRİŞ
         $loginInput = trim(is_string($_POST['login'] ?? null) ? $_POST['login'] : '');
         $password = is_string($_POST['password'] ?? null) ? $_POST['password'] : '';
 
@@ -157,6 +161,7 @@ $csrfToken = generateCsrfToken();
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
+        * { box-sizing: border-box; }
         body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; background: #F1F5F9; color: #0F172A; font-family: 'Plus Jakarta Sans', sans-serif; }
         .login-card { width: min(100%, 460px); padding: 36px; border: 1px solid #E2E8F0; border-radius: 20px; background: #fff; box-shadow: 0 18px 45px rgba(15,23,42,.09); }
         .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }

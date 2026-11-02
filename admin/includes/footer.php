@@ -55,6 +55,8 @@ function showToast(message, type = 'success') {
 <!-- MODERN MERKEZİ ONAY VE UYARI MODALI -->
 
 <style>
+#adminConfirmModal.active { display: flex !important; }
+#adminConfirmModal:not(.active) { display: none !important; }
 </style>
 <div id="adminConfirmModal" class="modal-overlay" style="z-index: 999999;">
     <div class="modal-box" style="max-width: 440px; text-align: center; padding: 32px 26px; border-radius: 20px; box-shadow: 0 25px 60px -15px rgba(0,0,0,0.3); border: 1px solid rgba(226, 232, 240, 0.8);">
@@ -157,7 +159,9 @@ function showToast(message, type = 'success') {
         }
     });
 
+    // Otomatik yakalama: Sayfadaki tüm confirm(...) formları ve butonları
     function bindConfirmHandlers() {
+        // Formlar
         document.querySelectorAll('form[onsubmit*="confirm("]').forEach(function(form) {
             var onsubmitStr = form.getAttribute('onsubmit') || '';
             var match = onsubmitStr.match(/confirm\s*\(\s*['"`](.*?)['"`]\s*\)/);
@@ -181,6 +185,7 @@ function showToast(message, type = 'success') {
             });
         });
 
+        // Butonlar
         document.querySelectorAll('button[onclick*="confirm("]').forEach(function(btn) {
             var onclickStr = btn.getAttribute('onclick') || '';
             var match = onclickStr.match(/confirm\s*\(\s*['"`](.*?)['"`]\s*\)/);

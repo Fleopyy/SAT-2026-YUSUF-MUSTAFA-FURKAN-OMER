@@ -1,4 +1,5 @@
 <?php
+// This cookie controls optional network requests, never authorization.
 function hasFunctionalConsent(): bool {
     $raw = $_COOKIE['bitiras_cookie_consent'] ?? '';
     if (!is_string($raw) || strlen($raw) > 2048) return false;

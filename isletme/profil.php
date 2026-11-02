@@ -1,4 +1,5 @@
 <?php
+header('Content-Type: text/html; charset=utf-8');
 require_once __DIR__ . '/../data/privacy.php';
 require_once __DIR__ . '/_common.php';
 require_once dirname(__DIR__) . '/data/maps_config.php';
@@ -7,10 +8,12 @@ $currentBusinessPage = 'profile';
 $pageTitle = 'İşletme Profilim';
 $errors = [];
 
+// Load maps configuration
 $mapsConfig = mapsSettings();
 $googleMapsApiKey = $mapsConfig['google_maps_api_key'];
 $hasGoogleMapsKey = $mapsConfig['has_api_key'];
 
+// Load Turkey districts dataset
 $turkeyDistricts = [];
 $districtsJsonPath = dirname(__DIR__) . '/data/turkey_districts.json';
 if (file_exists($districtsJsonPath)) {
@@ -22,6 +25,7 @@ if (file_exists($districtsJsonPath)) {
 $allCities = array_keys($turkeyDistricts);
 sort($allCities, SORT_LOCALE_STRING);
 
+// Fetch complete and fresh business record
 $stmt = $pdo->prepare('SELECT * FROM isletmeler WHERE id = ?');
 $stmt->execute([$businessId]);
 $freshBusiness = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -67,6 +71,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $errors[] = 'İşletme tanıtımı en fazla 2000 karakter olabilir.';
     }
 
+    // Address change detection: Check if core address text changed
     $oldAddressNorm = mb_strtolower(trim(
         ($business['sehir'] ?? '') . ' ' .
         ($business['ilce'] ?? '') . ' ' .
@@ -90,6 +95,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
     $addressChanged = ($oldAddressNorm !== '' && $oldAddressNorm !== $newAddressNorm);
     $locationReconfirmed = (($_POST['location_reconfirmed'] ?? '0') === '1');
 
+    // Coordinate validation
     $lat = null;
     $lng = null;
     $locationVerifiedAt = $business['location_verified_at'] ?? null;
@@ -108,6 +114,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                 $coordsChanged = ($prevLat === null || $prevLng === null || abs($prevLat - $latCandidate) > 0.00001 || abs($prevLng - $lngCandidate) > 0.00001);
 
                 if ($addressChanged && !$coordsChanged && !$locationReconfirmed) {
+                    // Critical rule: Address changed, but coordinates were NOT re-verified for new address!
+                    // Automatically invalidate old coordinates and reset location_verified_at to NULL.
                     $lat = null;
                     $lng = null;
                     $fields['place_id'] = '';
@@ -469,7 +477,22 @@ include __DIR__ . '/_header.php';
                         <div id="mapNotificationArea" style="margin-bottom:12px;display:none;"></div>
 
                         <!-- Harita Tuvali -->
-                        <div id="businessMap" class="map-canvas-container"><?php if (!hasFunctionalConsent()): ?><button type="button" onclick="openCookieSettings()">Harita icin islevsel cerez iznini yonetin</button><?php endif; ?></div>
+                        <div id="businessMap" class="map-canvas-container">
+                            <?php if (!hasFunctionalConsent()): ?>
+                            <div class="d-flex flex-column align-items-center justify-content-center h-100 p-4 text-center">
+                                <div style="width:48px;height:48px;border-radius:50%;background:rgba(194,136,64,0.12);color:var(--accent,#C28840);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:10px;">
+                                    <i class="fa-solid fa-map-location-dot"></i>
+                                </div>
+                                <div class="fw-bold text-dark mb-1" style="font-size:14px;">Harita Konum Seçici Korumalı</div>
+                                <p class="text-muted text-xs mb-3" style="max-width:300px;font-size:12px;line-height:1.4;">
+                                    Haritayı görüntülemek ve dükkan konumunuzu işaretlemek için işlevsel çerez izni gereklidir.
+                                </p>
+                                <button type="button" class="btn btn-warning btn-sm px-3 py-1 fw-bold text-dark rounded-3" style="font-size:12px;" onclick="openCookieSettings()">
+                                    <i class="fa-solid fa-sliders me-1"></i> Çerez Tercihlerini Yönet
+                                </button>
+                            </div>
+                            <?php endif; ?>
+                        </div>
 
                         <div class="map-helper-box">
                             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
@@ -581,6 +604,7 @@ include __DIR__ . '/_header.php';
 
 <script>
 (function () {
+    /* ── Şehir & İlçe Veri Yapısı Entegrasyonu ── */
     var turkeyDistricts = <?= json_encode($turkeyDistricts, JSON_UNESCAPED_UNICODE) ?>;
     var fSehir = document.getElementById('sehir');
     var fIlce  = document.getElementById('ilce');
@@ -621,6 +645,7 @@ include __DIR__ . '/_header.php';
         });
     }
 
+    /* ── Form Elemanları ve Önizleme ── */
     var fDesc    = document.getElementById('aciklama');
     var fAddr    = document.getElementById('tam_adres');
     var fMahalle = document.getElementById('mahalle');
@@ -708,6 +733,7 @@ include __DIR__ . '/_header.php';
         }
     });
 
+    // Otomatik adres oluştur butonu
     var btnAuto = document.getElementById('btnAutoGenerateAddress');
     if (btnAuto) {
         btnAuto.addEventListener('click', function () {
@@ -727,6 +753,7 @@ include __DIR__ . '/_header.php';
     syncAddr();
     syncPhone();
 
+    /* ── Önizleme Tıklama Odaklanması ── */
     document.querySelectorAll('.preview-editable').forEach(function (el) {
         el.addEventListener('click', function () {
             var targetId = el.getAttribute('data-target');
@@ -744,6 +771,7 @@ include __DIR__ . '/_header.php';
         });
     });
 
+    /* ── Harita Yönetimi (Google Maps & Leaflet Çift Mod) ── */
     var hasGoogleMaps = <?= $hasGoogleMapsKey ? 'true' : 'false' ?>;
     var inputLat = document.getElementById('inputLatitude');
     var inputLng = document.getElementById('inputLongitude');
@@ -794,6 +822,7 @@ include __DIR__ . '/_header.php';
         }
     }
 
+    /* ── Leaflet Harita Başlatıcı ── */
     function initLeaflet() {
         if (typeof L === 'undefined') return;
         if (leafletMap) return;
@@ -811,6 +840,7 @@ include __DIR__ . '/_header.php';
             attribution: '&copy; OpenStreetMap'
         }).addTo(leafletMap);
 
+        // Marker
         var markerOptions = { draggable: true };
         leafletMarker = L.marker([initialLat, initialLng], markerOptions).addTo(leafletMap);
         leafletMarker.bindPopup('<strong>' + (document.getElementById('isletme_adi').value || 'İşletmeniz') + '</strong><br>Konumu değiştirmek için sürükleyin.').openPopup();
@@ -827,11 +857,9 @@ include __DIR__ . '/_header.php';
             showNotice('İşaretçi tıklanan noktaya yerleştirildi. Konumu onaylamak için "Konumu Kaydet" butonuna basın.', 'info');
         });
 
-        if (!hasGoogleMaps) {
-            showNotice('<i class="fa-solid fa-circle-info me-1"></i> Google Maps API anahtarı yapılandırılmadığında (`data/maps.local.php`), harita konum belirleme sistemi açık kaynak harita motoru ile kesintisiz çalışır. Müşteri profilinde Google Maps yol tarifi bağlantısı tam entegre çalışmaktadır.', 'info');
-        }
     }
 
+    /* ── Google Maps Harita Başlatıcı ── */
     window.initGoogleMap = function () {
         var container = document.getElementById('businessMap');
         if (!container || typeof google === 'undefined' || !google.maps) return;
@@ -877,16 +905,19 @@ include __DIR__ . '/_header.php';
         }
     };
 
+    // Google Maps authentication failure handler
     window.gm_authFailure = function () {
         console.warn('Google Maps API kimlik doğrulaması başarısız oldu. Leaflet harita desteğine geçiliyor.');
         showNotice('Google Maps API anahtarı geçersiz veya kısıtlı. Harita yedek açık kaynak motoruyla kullanıma devam ediyor.', 'error');
         initLeaflet();
     };
 
+    // If Google Maps API is not configured, load Leaflet immediately
     if (!hasGoogleMaps) {
         document.addEventListener('DOMContentLoaded', initLeaflet);
     }
 
+    /* ── Gece Açık Durumu Anında Kaydetme (AJAX) ── */
     window.toggleGeceAcik = function(checkbox) {
         var isChecked = checkbox.checked ? 1 : 0;
         var badge = document.getElementById('geceAcikStatusBadge');
@@ -931,6 +962,7 @@ include __DIR__ . '/_header.php';
         });
     };
 
+    /* ── Adresi Haritada Göster (Geocoding) ── */
     var btnSearch = document.getElementById('btnSearchAddressOnMap');
     if (btnSearch) {
         btnSearch.addEventListener('click', function () {
@@ -941,12 +973,15 @@ include __DIR__ . '/_header.php';
             var s = fSehir   ? fSehir.value.trim() : '';
             var openAddr = fAddr ? fAddr.value.trim() : '';
 
+            // Akıllı aday sorgu listesi oluştur (Açık adres en yüksek önceliğe sahiptir)
             var candidateQueries = [];
 
             if (openAddr) {
+                // 1. Kullanıcının açık adres kutusuna yazdığı tam metin
                 candidateQueries.push(openAddr);
                 candidateQueries.push(openAddr + ', Türkiye');
 
+                // Açık adres metninde formdaki ilçe ve il zaten geçiyor mu kontrol et
                 var lowerAddr = openAddr.toLocaleLowerCase('tr-TR');
                 var containsCity = s && lowerAddr.indexOf(s.toLocaleLowerCase('tr-TR')) !== -1;
                 var containsDistrict = i && lowerAddr.indexOf(i.toLocaleLowerCase('tr-TR')) !== -1;
@@ -957,6 +992,7 @@ include __DIR__ . '/_header.php';
                 }
             }
 
+            // 2. Yapısal alanlar (cadde, mahalle, bina no, ilçe, il)
             var structuredParts = [];
             if (c) structuredParts.push(c);
             if (m) structuredParts.push(m);
@@ -968,10 +1004,12 @@ include __DIR__ . '/_header.php';
                 candidateQueries.push(structuredParts.filter(Boolean).join(', '));
             }
 
+            // 3. Bölge düzeyinde yedek kombinasyonlar (mahalle, ilçe, il)
             if (m && i && s) candidateQueries.push([m, i, s, 'Türkiye'].filter(Boolean).join(', '));
             if (i && s)      candidateQueries.push([i, s, 'Türkiye'].filter(Boolean).join(', '));
             if (s)           candidateQueries.push([s, 'Türkiye'].filter(Boolean).join(', '));
 
+            // Tekrarları temizle
             candidateQueries = candidateQueries.filter(function (item, pos, self) {
                 return item && item.trim().length > 1 && self.indexOf(item) === pos;
             });
@@ -1012,6 +1050,7 @@ include __DIR__ . '/_header.php';
 
                 showNotice(successNote, 'success');
 
+                // Harita alanını görünür alana kaydır
                 var mapBox = document.getElementById('businessMap');
                 if (mapBox) {
                     mapBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1069,6 +1108,7 @@ include __DIR__ . '/_header.php';
         });
     }
 
+    /* ── Açık Adreste Enter Tuşuna Basıldığında Haritada Göster ── */
     if (fAddr && btnSearch) {
         fAddr.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -1078,6 +1118,7 @@ include __DIR__ . '/_header.php';
         });
     }
 
+    /* ── Yalnızca Konumu Kaydet (AJAX Endpoint) ── */
     if (btnSaveLocation) {
         btnSaveLocation.addEventListener('click', function () {
             var lat = inputLat.value.trim();

@@ -1,3 +1,4 @@
+# Uploaded files must always be static content.
 Options -Indexes -ExecCGI -Includes -MultiViews
 SetHandler default-handler
 AcceptPathInfo Off
@@ -7,6 +8,7 @@ AcceptPathInfo Off
 <IfModule headers_module>
     Header always set X-Content-Type-Options "nosniff"
 </IfModule>
+# Deny executable extensions anywhere in a name, including mixed case / double extensions.
 <FilesMatch "(?i)(^\.|\.(php[0-9]*|pht[am]?l?|phar|phps|cgi|fcgi|pl|py|rb|sh|bash|asp[x]?|asa[x]?|jsp[x]?|shtml?|stm|exe|com|bat|cmd|dll)(\.|$))">
     Require all denied
 </FilesMatch>

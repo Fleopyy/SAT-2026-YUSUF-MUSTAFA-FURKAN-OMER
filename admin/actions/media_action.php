@@ -36,15 +36,18 @@ if ($action === 'delete' && $photoId > 0) {
         try {
             deleteOwnedMedia($photo['fotograf_yolu'], (int)$photo['isletme_id'], $pdo, function () use ($pdo, $photoId, $photo) {
 
+            // isletme_panel_medya: profil veya kapak bu foto ise NULL yap
             $pdo->prepare("UPDATE isletme_panel_medya
                            SET profil_fotograf_id = CASE WHEN profil_fotograf_id = ? THEN NULL ELSE profil_fotograf_id END,
                                kapak_fotograf_id  = CASE WHEN kapak_fotograf_id  = ? THEN NULL ELSE kapak_fotograf_id  END
                            WHERE isletme_id = ?")
                 ->execute([$photoId, $photoId, $photo['isletme_id']]);
 
+            // Galeri sıralama kaydını kaldır
             $pdo->prepare("DELETE FROM isletme_fotograf_siralama WHERE fotograf_id = ?")
                 ->execute([$photoId]);
 
+            // Ana fotoğraf kaydını sil
             $delete = $pdo->prepare("DELETE FROM isletme_fotograflari WHERE id = ? AND isletme_id = ? AND fotograf_yolu = ?");
             $delete->execute([$photoId, $photo['isletme_id'], $photo['fotograf_yolu']]);
             if ($delete->rowCount() !== 1) throw new RuntimeException('Fotoğraf kaydı değişti.');

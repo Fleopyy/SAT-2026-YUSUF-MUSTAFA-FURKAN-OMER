@@ -40,14 +40,14 @@ function customerFlash(string $type, string $message): void {
 
 function customerCreateAppointmentReview(PDO $pdo, int $customerId, int $appointmentId, int $rating, string $comment): void {
     $comment = trim($comment);
-    if ($appointmentId < 1 || $rating < 1 || $rating > 5 || $comment === '' || mb_strlen($comment, 'UTF-8') > 2000) {
-        throw new RuntimeException('Randevu için 1-5 puan ve 1-2000 karakter arasında yorum girin.');
+    if ($appointmentId < 1 || $rating < 1 || $rating > 5 || mb_strlen($comment, 'UTF-8') > 2000) {
+        throw new RuntimeException('Geçerli bir puan seçin (1-5). Yorum en fazla 2000 karakter olabilir.');
     }
     $stmt = $pdo->prepare("INSERT INTO degerlendirmeler (randevu_id, degerlendiren_turu, degerlendiren_id, puan, yorum)
                            SELECT r.id, 'customer', ?, ?, ?
                            FROM randevular r
                            WHERE r.id = ? AND r.kullanici_id = ? AND r.durum = 'completed'");
-    $stmt->execute([$customerId, $rating, $comment, $appointmentId, $customerId]);
+    $stmt->execute([$customerId, $rating, $comment !== '' ? $comment : null, $appointmentId, $customerId]);
     if ($stmt->rowCount() !== 1) {
         throw new RuntimeException('Yalnızca tamamlanmış kendi randevularını değerlendirebilirsin.');
     }

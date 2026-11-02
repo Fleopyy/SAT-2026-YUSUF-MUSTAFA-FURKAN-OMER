@@ -1,4 +1,5 @@
 <?php
+// CLI only: no application bootstrap or database access.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 $checks = 0;
 function check4c(bool $ok, string $label): void {
@@ -6,10 +7,12 @@ function check4c(bool $ok, string $label): void {
     if (!$ok) throw new RuntimeException($label);
     $checks++;
 }
+// Fresh subprocesses avoid carrying session configuration between TLS cases.
 if (isset($argv[1]) && $argv[1] === 'cookie') {
     $_SERVER['HTTPS'] = $argv[2];
     $_SERVER['SERVER_PORT'] = $argv[3];
     $_SERVER['HTTP_X_FORWARDED_PROTO'] = 'https';
+    // In-memory session backend: never touch application session files.
     session_set_save_handler(
         fn($path, $name) => true, fn() => true, fn($id) => '',
         fn($id, $data) => true, fn($id) => true, fn($age) => 0

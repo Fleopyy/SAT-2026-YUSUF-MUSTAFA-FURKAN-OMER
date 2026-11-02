@@ -28,8 +28,46 @@ $customerPageTitle = $customerPageTitle ?? 'Hesabım';
         .customer-notice.success { color:#166534; background:#F0FDF4; border:1px solid #BBF7D0; }
         .customer-notice.error { color:#991B1B; background:#FEF2F2; border:1px solid #FECACA; }
         .customer-muted { color:#64748B; }
-        .customer-button { border:0; border-radius:10px; padding:10px 16px; color:#fff; background:#B9813E; font-weight:700; }
-        .customer-button:hover { background:#A66A2C; color:#fff; }
+        .form-control, .form-select {
+            border-radius: 10px;
+            min-height: 42px;
+            font-size: 14px;
+        }
+        .customer-button {
+            border: 0;
+            border-radius: 10px;
+            padding: 0 20px;
+            height: 42px;
+            color: #fff;
+            background: #B9813E;
+            font-weight: 700;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.18s ease-in-out;
+            box-shadow: 0 2px 6px rgba(185, 129, 62, 0.22);
+            line-height: 1;
+            box-sizing: border-box;
+            white-space: nowrap;
+        }
+        .customer-button:hover {
+            background: #A66A2C;
+            color: #fff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(166, 106, 44, 0.32);
+        }
+        .customer-button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(166, 106, 44, 0.2);
+        }
+        .customer-button:focus-visible {
+            outline: 2px solid #B9813E;
+            outline-offset: 2px;
+        }
         @media(max-width:600px) { .customer-shell { padding:20px 14px 42px; } .customer-topbar { align-items:flex-start; flex-direction:column; } .customer-title { font-size:24px; } }
     </style>
 </head>

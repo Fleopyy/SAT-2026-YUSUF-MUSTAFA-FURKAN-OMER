@@ -1,4 +1,5 @@
 <?php
+// Maintenance and test tools must never run through HTTP.
 if (PHP_SAPI !== 'cli') {
     http_response_code(403);
     exit('Forbidden');
@@ -31,12 +32,14 @@ try {
         }
     }
 
+    // Add index for coordinates if not exists
     $indices = $pdo->query("SHOW INDEX FROM `isletmeler` WHERE Key_name = 'idx_isletme_coordinates'")->fetchAll();
     if (empty($indices)) {
         $pdo->exec("ALTER TABLE `isletmeler` ADD INDEX `idx_isletme_coordinates` (`latitude`, `longitude`)");
         echo "[+] 'idx_isletme_coordinates' indeksi eklendi.\n";
     }
 
+    // Add google_maps_api_key setting to site_ayarlari if not exists
     $stmt = $pdo->prepare("INSERT IGNORE INTO `site_ayarlari` (`anahtar`, `deger`, `tur`, `aciklama`) VALUES (?, ?, ?, ?)");
     $stmt->execute([
         'google_maps_api_key',

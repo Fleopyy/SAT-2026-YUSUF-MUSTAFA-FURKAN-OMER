@@ -384,6 +384,7 @@ a {
                                                                              
                         
                                                                                 
+#hero {
     position: relative;
     overflow: hidden;
     min-height: calc(100vh - 110px);
@@ -434,6 +435,7 @@ a {
     z-index: 2;
 }
 
+#hero .container {
     position: relative;
     z-index: 3;
     width: 100%;
@@ -673,6 +675,7 @@ a {
     }
 }
 
+/* ── Müşteri Kayıt Şehir Combobox / Autocomplete ── */
 .cust-city-combobox {
     position: relative;
     width: 100%;

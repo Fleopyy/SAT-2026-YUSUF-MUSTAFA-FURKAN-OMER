@@ -2,10 +2,15 @@
     Require all denied
 </Files>
 
+# Stage 4D: secrets and database/backup exports.
 <FilesMatch "(?i)(^\.|\.(sql|sqlite|sqlite3|db|bak|old|orig|save|swp|ini|log)$|^database\.local\.|^mail\.local\.|^maps\.local\.)">
     Require all denied
 </FilesMatch>
 
+# Stage 4C: single security header owner, including static/error responses.
+# No HTTPS redirect or HSTS until deployment TLS is verified.
+# CSP observation only; migrate inline scripts/styles/handlers before enforcement.
+# No report collector: inspect browser console, no external reporting.
 <IfModule mod_headers.c>
     Header onsuccess unset X-Content-Type-Options
     Header always set X-Content-Type-Options "nosniff"

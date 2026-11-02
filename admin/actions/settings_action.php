@@ -23,6 +23,7 @@ $action = $_POST['action'] ?? 'save_settings';
 
 if ($action === 'test_smtp') {
     requirePermission('settings.edit');
+    // Fail closed until an explicit SMTP destination policy and pinned transport exist.
     $_SESSION['flash_error'] = 'SMTP testi beklemede: izinli sunucu ve kurum içi ağ politikası tanımlanmalı. Ağ bağlantısı açılmadı ve kuyruk kaydı oluşturulmadı.';
     header('Location: /admin/pages/content.php#smtp');
     exit;
@@ -49,6 +50,7 @@ if ($action === 'save_settings') {
         'smtp_sifreleme'
     ];
 
+    // SMTP changes are held pending policy; preserve every existing SMTP value/password.
     $allowedKeys = array_values(array_filter($allowedKeys, fn($key) => !str_starts_with($key, 'smtp_')));
     $updatedCount = 0;
     foreach ($allowedKeys as $key) {

@@ -32,6 +32,7 @@ if (!$business) {
     exit('İşletme bulunamadı.');
 }
 
+// Format display address
 $displayAddress = trim((string)($business['tam_adres'] ?? ''));
 if ($displayAddress === '') {
     $addrParts = array_filter([
@@ -46,6 +47,7 @@ if ($displayAddress === '') {
     $displayAddress = implode(', ', $addrParts);
 }
 
+// Coordinates & Google Maps navigation links
 $hasCoordinates = false;
 $lat = null;
 $lng = null;
@@ -65,7 +67,7 @@ if (!empty($business['location_verified_at']) && isset($business['latitude'], $b
     }
 }
 
-$stmt = $pdo->prepare('SELECT id, hizmet_adi, fiyat, sure_dakika FROM hizmetler WHERE isletme_id = ? AND aktif_mi = 1 ORDER BY hizmet_adi');
+$stmt = $pdo->prepare('SELECT id, hizmet_adi, fiyat, sure_dakika FROM hizmetler WHERE isletme_id = ? AND aktif_mi = 1 ORDER BY fiyat ASC, hizmet_adi ASC');
 $stmt->execute([$businessId]);
 $services = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $stmt = $pdo->prepare('SELECT c.id, c.ad_soyad, d.uzmanlik, d.fotograf_yolu FROM calisanlar c LEFT JOIN calisan_detaylari d ON d.calisan_id = c.id WHERE c.isletme_id = ? AND c.aktif_mi = 1 ORDER BY c.ad_soyad');
@@ -104,6 +106,7 @@ $stmt = $pdo->prepare("SELECT f.fotograf_yolu FROM isletme_fotograflari f
 $stmt->execute([$businessId]);
 $gallery = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
+// Kapak ve profil fotoğrafları da fotoğraf galerisi kısmında gözüksün
 $featuredPhotos = array_filter([$business['cover_photo'] ?? null, $business['profile_photo'] ?? null]);
 foreach (array_reverse($featuredPhotos) as $featuredPhoto) {
     if (!in_array($featuredPhoto, $gallery, true)) {
@@ -126,7 +129,7 @@ $messageType = $_SESSION['mesaj_turu'] ?? 'info';
 unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
 ?>
 <!DOCTYPE html>
-<html lang="tr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="index,follow"><title><?= htmlspecialchars($business['isletme_adi'], ENT_QUOTES, 'UTF-8') ?> — BiTıraş</title><?php if (hasFunctionalConsent()): ?><link rel="preconnect" href="https://fonts.googleapis.com"><?php endif; ?><?php if (hasFunctionalConsent()): ?><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><?php endif; ?><?php if (hasFunctionalConsent()): ?><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><?php endif; ?><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><link rel="stylesheet" href="/style.css"><?php if (hasFunctionalConsent()): ?><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""><?php endif; ?></head>
+<html lang="tr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="index,follow"><title><?= htmlspecialchars($business['isletme_adi'], ENT_QUOTES, 'UTF-8') ?> — BiTıraş</title><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><link rel="stylesheet" href="/style.css"><?php if (hasFunctionalConsent()): ?><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""><?php endif; ?></head>
 <body><main class="container py-4" style="max-width:1100px">
     <a href="/" class="btn btn-outline-dark mb-3">← Ana sayfa</a>
     <?php if ($errorMessage): ?><div class="alert alert-<?= $messageType === 'success' ? 'success' : 'warning' ?>"><?= htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8') ?></div><?php endif; ?>
@@ -191,7 +194,22 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
         </div>
 
         <?php if ($hasCoordinates): ?>
-            <div id="customerProfileMap" style="width:100%;height:320px;border-radius:12px;overflow:hidden;border:1.5px solid #CBD5E1;margin-bottom:16px;background:#F8FAFC;position:relative;"><?php if (!hasFunctionalConsent()): ?><button type="button" onclick="openCookieSettings()">Harita icin islevsel cerez iznini yonetin</button><?php endif; ?></div>
+            <div id="customerProfileMap" style="width:100%;height:320px;border-radius:12px;overflow:hidden;border:1.5px solid #CBD5E1;margin-bottom:16px;background:#F8FAFC;position:relative;">
+                <?php if (!hasFunctionalConsent()): ?>
+                <div class="d-flex flex-column align-items-center justify-content-center h-100 p-4 text-center">
+                    <div style="width:48px;height:48px;border-radius:50%;background:rgba(194,136,64,0.12);color:var(--accent,#C28840);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:10px;">
+                        <i class="fa-solid fa-map-location-dot"></i>
+                    </div>
+                    <div class="fw-bold text-dark mb-1" style="font-size:14px;">Harita Önizlemesi Korumalı</div>
+                    <p class="text-muted text-xs mb-3" style="max-width:300px;font-size:12px;line-height:1.4;">
+                        Harita katmanının görüntülenebilmesi için işlevsel çerez izni gerekmektedir.
+                    </p>
+                    <button type="button" class="btn btn-warning btn-sm px-3 py-1 fw-bold text-dark rounded-3" style="font-size:12px;" onclick="openCookieSettings()">
+                        <i class="fa-solid fa-sliders me-1"></i> Çerez Tercihlerini Yönet
+                    </button>
+                </div>
+                <?php endif; ?>
+            </div>
 
             <div class="d-flex gap-2 flex-wrap">
                 <a href="<?= htmlspecialchars($googleMapsDirUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer" class="btn btn-primary d-inline-flex align-items-center gap-2" style="background:#075B99;border-color:#075B99;border-radius:10px;padding:9px 18px;font-size:13.5px;font-weight:600;">
@@ -226,10 +244,32 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
         .booking-step span { color:inherit; margin-right:4px; }
         .booking-content { padding:22px; min-height:420px; }
         .booking-content h2 { font-size:18px; font-weight:800; color:#102A43; margin-bottom:18px; }
-        .booking-choice { display:flex; align-items:center; gap:14px; width:100%; padding:13px 15px; margin-bottom:9px; border:1px solid #DCE4EE; border-radius:12px; background:#fff; color:#102A43; text-align:left; transition:background .15s,border-color .15s,transform .15s; }
+        .booking-choice { display:flex; align-items:center; gap:14px; width:100%; padding:13px 15px; margin-bottom:9px; border:1px solid #DCE4EE; border-radius:12px; background:#fff; color:#102A43; text-align:left; transition:background .15s,border-color .15s,transform .15s; cursor:pointer; }
         .booking-choice:hover { border-color:#94A3B8; transform:translateY(-1px); }
         .booking-choice.selected { background:#075B99; border-color:#075B99; color:#fff; }
         .booking-choice-mark { flex:0 0 7px; height:42px; border-radius:8px; background:#0EA5E9; }
+        .booking-choice-checkbox {
+            flex: 0 0 22px;
+            width: 22px;
+            height: 22px;
+            border-radius: 6px;
+            border: 2px solid #CBD5E1;
+            background: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: transparent;
+            transition: all .15s ease-in-out;
+        }
+        .booking-choice.selected .booking-choice-checkbox {
+            background: #0EA5E9;
+            border-color: #0EA5E9;
+            color: #fff;
+        }
+        .booking-choice:not(.selected):hover .booking-choice-checkbox {
+            border-color: #0EA5E9;
+        }
         .booking-choice-copy { min-width:0; flex:1; }
         .booking-choice-copy strong,.booking-choice-copy small { display:block; }
         .booking-choice-copy strong { font-size:14px; }
@@ -267,6 +307,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
             .booking-time-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
         }
 
+        /* ── Berber Fotoğraf Galerisi & Lightbox ── */
         .gallery-item-wrapper {
             position: relative;
             overflow: hidden;
@@ -323,6 +364,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
             transform: scale(1);
         }
 
+        /* Lightbox Container */
         .gallery-lightbox {
             position: fixed;
             inset: 0;
@@ -580,14 +622,30 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                         <input type="hidden" name="business_id" value="<?= (int)$businessId ?>">
                         <input type="hidden" name="service_id" id="bookingService" required>
+                        <input type="hidden" name="service_ids" id="bookingServices" required>
                         <input type="hidden" name="employee_id" id="bookingEmployee" required>
                         <input type="hidden" name="start" id="bookingStart" required>
                         <div data-booking-panel="1">
+                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                <small class="text-muted fw-semibold"><i class="fa-solid fa-list-check me-1 text-primary"></i>Birden fazla hizmet seçebilirsiniz</small>
+                                <span class="badge bg-light text-primary border" id="selectedServiceBadge" style="display:none; font-size:11px;">0 hizmet</span>
+                            </div>
                             <?php foreach ($services as $service): ?>
                                 <button type="button" class="booking-choice" data-service-id="<?= (int)$service['id'] ?>" data-service-name="<?= htmlspecialchars($service['hizmet_adi'], ENT_QUOTES, 'UTF-8') ?>" data-service-price="<?= number_format((float)$service['fiyat'],2,',','.') ?>" data-service-duration="<?= (int)$service['sure_dakika'] ?>">
-                                    <span class="booking-choice-mark"></span><span class="booking-choice-copy"><strong><?= htmlspecialchars($service['hizmet_adi'], ENT_QUOTES, 'UTF-8') ?></strong><small><?= (int)$service['sure_dakika'] ?> dakika · <?= number_format((float)$service['fiyat'],2,',','.') ?> ₺</small></span><i class="fa-solid fa-check booking-selected-check"></i>
+                                    <span class="booking-choice-checkbox"><i class="fa-solid fa-check"></i></span>
+                                    <span class="booking-choice-copy">
+                                        <strong><?= htmlspecialchars($service['hizmet_adi'], ENT_QUOTES, 'UTF-8') ?></strong>
+                                        <small><?= (int)$service['sure_dakika'] ?> dakika · <?= number_format((float)$service['fiyat'],2,',','.') ?> ₺</small>
+                                    </span>
+                                    <i class="fa-solid fa-check booking-selected-check"></i>
                                 </button>
                             <?php endforeach; ?>
+                            <div id="bookingSelectedServicesBar" class="p-2 px-3 mt-3 rounded-3" style="background:#F0F9FF; border:1px solid #BAE6FD; font-size:13px; color:#0369A1; display:none;">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span><i class="fa-solid fa-check-double me-1"></i> <strong id="selectedServicesCount">0</strong> hizmet seçildi</span>
+                                    <span class="fw-bold"><span id="selectedServicesDuration">0</span> dk · <span id="selectedServicesPrice">0,00</span> ₺</span>
+                                </div>
+                            </div>
                         </div>
                         <div data-booking-panel="2" hidden>
                             <?php if ($ownerScheduleConfigured): ?>
@@ -645,6 +703,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
     const next = document.getElementById('bookingNext');
     const submit = document.getElementById('bookingSubmit');
     const serviceInput = document.getElementById('bookingService');
+    const servicesInput = document.getElementById('bookingServices');
     const employeeInput = document.getElementById('bookingEmployee');
     const startInput = document.getElementById('bookingStart');
     const dateContainer = document.getElementById('bookingDates');
@@ -667,6 +726,50 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
     let selectedTime = '';
     let availabilityRequest = 0;
 
+    function getSelectedServiceButtons() {
+        return [...form.querySelectorAll('[data-service-id].selected')];
+    }
+
+    function getSelectedServiceIds() {
+        return getSelectedServiceButtons().map(btn => btn.dataset.serviceId);
+    }
+
+    function updateSelectedServices() {
+        const selected = getSelectedServiceButtons();
+        const ids = selected.map(b => b.dataset.serviceId);
+        serviceInput.value = ids[0] || '';
+        if (servicesInput) servicesInput.value = ids.join(',');
+
+        const count = selected.length;
+        const badge = document.getElementById('selectedServiceBadge');
+        const bar = document.getElementById('bookingSelectedServicesBar');
+
+        if (count > 0) {
+            let totalDuration = 0;
+            let totalPrice = 0;
+            selected.forEach(s => {
+                totalDuration += parseInt(s.dataset.serviceDuration || 0, 10);
+                const p = parseFloat((s.dataset.servicePrice || '0').replace(/\./g, '').replace(',', '.'));
+                totalPrice += isNaN(p) ? 0 : p;
+            });
+
+            if (badge) {
+                badge.style.display = 'inline-block';
+                badge.textContent = count + ' hizmet seçildi';
+            }
+            if (bar) {
+                bar.style.display = 'block';
+                document.getElementById('selectedServicesCount').textContent = count;
+                document.getElementById('selectedServicesDuration').textContent = totalDuration;
+                document.getElementById('selectedServicesPrice').textContent = totalPrice.toLocaleString('tr-TR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            }
+        } else {
+            if (badge) badge.style.display = 'none';
+            if (bar) bar.style.display = 'none';
+        }
+        updateNavigation();
+    }
+
     function setStep(value) {
         step = value;
         panels.forEach(panel => panel.hidden = Number(panel.dataset.bookingPanel) !== step);
@@ -684,23 +787,35 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
     }
 
     function updateNavigation() {
-        if (step === 1) next.disabled = !serviceInput.value;
+        if (step === 1) next.disabled = getSelectedServiceIds().length === 0;
         else if (step === 2) next.disabled = employeeInput.value === '';
         else if (step === 3) next.disabled = !startInput.value;
         else next.disabled = false;
     }
 
     function updateEmployeeChoices() {
+        const selectedIds = getSelectedServiceIds();
         let visibleChoices = 0;
         employeeChoices.forEach(button => {
-            const compatible = button.dataset.employeeId === '0'
-                || button.dataset.serviceIds.split(',').includes(serviceInput.value);
-            button.hidden = !compatible;
+            const empId = button.dataset.employeeId;
+            if (empId === '0') {
+                button.hidden = false;
+                visibleChoices++;
+            } else {
+                const empServiceIds = (button.dataset.serviceIds || '').split(',').map(s => s.trim());
+                const canDoAll = selectedIds.length > 0 && selectedIds.every(id => empServiceIds.includes(id));
+                button.hidden = !canDoAll;
+                if (canDoAll) visibleChoices++;
+            }
             button.classList.remove('selected');
-            if (compatible) visibleChoices++;
         });
         employeeInput.value = '';
-        if (employeeMessage) employeeMessage.hidden = visibleChoices > 0;
+        if (employeeMessage) {
+            employeeMessage.hidden = visibleChoices > 0;
+            if (visibleChoices === 0) {
+                employeeMessage.textContent = 'Seçtiğiniz hizmetlerin tümünü verebilecek uygun bir personel bulunmuyor.';
+            }
+        }
         updateNavigation();
     }
 
@@ -731,10 +846,12 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
         const requestId = ++availabilityRequest;
         timeContainer.replaceChildren();
         availabilityMessage.textContent = 'Uygun saatler yükleniyor...';
+        const selectedIds = getSelectedServiceIds();
         const params = new URLSearchParams({
             business_id: '<?= (int)$businessId ?>',
             employee_id: employeeInput.value,
-            service_id: serviceInput.value,
+            service_id: selectedIds[0] || '',
+            service_ids: selectedIds.join(','),
             date: selectedDate
         });
         try {
@@ -774,9 +891,8 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
     }
 
     form.querySelectorAll('[data-service-id]').forEach(button => button.addEventListener('click', () => {
-        form.querySelectorAll('[data-service-id]').forEach(item => item.classList.remove('selected'));
-        button.classList.add('selected');
-        serviceInput.value = button.dataset.serviceId;
+        button.classList.toggle('selected');
+        updateSelectedServices();
         startInput.value = '';
         selectedTime = '';
         updateEmployeeChoices();
@@ -801,10 +917,18 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
             return;
         }
         if (step === 3) {
-            const service = form.querySelector('[data-service-id].selected');
+            const selectedServices = getSelectedServiceButtons();
             const employee = form.querySelector('[data-employee-id].selected');
-            document.getElementById('bookingSummaryService').textContent = service.dataset.serviceName + ' · ' + service.dataset.serviceDuration + ' dk · ' + service.dataset.servicePrice + ' ₺';
-            document.getElementById('bookingSummaryEmployee').textContent = employee.dataset.employeeName;
+            const serviceNames = selectedServices.map(s => s.dataset.serviceName).join(' + ');
+            const totalDuration = selectedServices.reduce((sum, s) => sum + parseInt(s.dataset.serviceDuration || 0, 10), 0);
+            const totalPrice = selectedServices.reduce((sum, s) => {
+                const p = parseFloat((s.dataset.servicePrice || '0').replace(/\./g, '').replace(',', '.'));
+                return sum + (isNaN(p) ? 0 : p);
+            }, 0);
+            const formattedPrice = totalPrice.toLocaleString('tr-TR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+            document.getElementById('bookingSummaryService').textContent = serviceNames + ' · ' + totalDuration + ' dk · ' + formattedPrice + ' ₺';
+            document.getElementById('bookingSummaryEmployee').textContent = employee ? employee.dataset.employeeName : 'İşletme sahibi';
             const date = dates.find(item => formatDate(item) === selectedDate);
             document.getElementById('bookingSummaryDate').textContent = date.toLocaleDateString('tr-TR', {weekday:'long',day:'numeric',month:'long',year:'numeric'}) + ' · ' + selectedTime;
         }
@@ -812,7 +936,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
     });
     back.addEventListener('click', () => setStep(Math.max(step - 1, 1)));
     form.addEventListener('submit', event => {
-        if (!serviceInput.value || employeeInput.value === '' || !startInput.value) {
+        if (getSelectedServiceIds().length === 0 || employeeInput.value === '' || !startInput.value) {
             event.preventDefault();
             return;
         }
@@ -914,6 +1038,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
     var currentIndex = 0;
     var isOpen = false;
 
+    // Küçük resim şeridini dinamik oluştur
     function buildThumbnails() {
         if (!thumbsBar) return;
         thumbsBar.innerHTML = '';
@@ -954,6 +1079,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
 
         counter.textContent = (currentIndex + 1) + ' / ' + currentList.length;
 
+        // Nav butonları tek fotoğrafta gizlensin
         if (currentList.length <= 1) {
             prevBtn.style.display = 'none';
             nextBtn.style.display = 'none';
@@ -962,6 +1088,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
             nextBtn.style.display = 'flex';
         }
 
+        // Aktif thumbnail güncelle
         if (thumbsBar) {
             var thumbBtns = thumbsBar.querySelectorAll('.lightbox-thumb-btn');
             thumbBtns.forEach(function(btn, idx) {
@@ -974,6 +1101,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
             });
         }
 
+        // Sonraki ve önceki fotoğrafları önbelleğe al (pre-load)
         if (currentList.length > 1) {
             var nextIdx = (currentIndex + 1) % currentList.length;
             var prevIdx = (currentIndex - 1 + currentList.length) % currentList.length;
@@ -1028,11 +1156,13 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
         updateView();
     }
 
+    // Buton Dinleyicileri
     if (nextBtn) nextBtn.addEventListener('click', function(e) { e.stopPropagation(); nextPhoto(); });
     if (prevBtn) prevBtn.addEventListener('click', function(e) { e.stopPropagation(); prevPhoto(); });
     if (closeBtn) closeBtn.addEventListener('click', function(e) { e.stopPropagation(); closeLightbox(); });
     if (backdrop) backdrop.addEventListener('click', closeLightbox);
 
+    // Klavye Kısayolları (Esc, Sol Ok, Sağ Ok)
     window.addEventListener('keydown', function(e) {
         if (!isOpen) return;
         if (e.key === 'Escape') {
@@ -1044,6 +1174,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
         }
     });
 
+    // Dokunmatik Ekranlar için Sağa / Sola Kaydırma (Swipe)
     var touchStartX = 0;
     var touchStartY = 0;
     stage.addEventListener('touchstart', function(e) {
@@ -1067,6 +1198,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
         }
     }, { passive: true });
 
+    // Fotoğraf Galerisi Öğelerine Tıklama Olayları
     document.querySelectorAll('.gallery-item-wrapper').forEach(function(el) {
         el.addEventListener('click', function() {
             var idx = parseInt(el.getAttribute('data-gallery-index'), 10) || 0;
@@ -1080,6 +1212,7 @@ unset($_SESSION['mesaj'], $_SESSION['mesaj_turu']);
         });
     });
 
+    // Kapak ve profil fotoğraflarına tıklanabilirlik desteği
     document.querySelectorAll('.js-zoomable-img').forEach(function(img) {
         img.style.cursor = 'pointer';
         img.addEventListener('click', function() {

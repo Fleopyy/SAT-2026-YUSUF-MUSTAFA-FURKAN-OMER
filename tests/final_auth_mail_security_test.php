@@ -1,4 +1,5 @@
 <?php
+// CLI only: production functions extracted without bootstrap; no DB or SMTP.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 function loadFinalFunction($file, $name) {
     $s = file_get_contents(__DIR__ . '/../' . $file);
@@ -73,6 +74,7 @@ $a = strpos($s, 'function completeBarberPasswordLogin'); $s = substr($s, $a);
 ck(str_contains($s, "unset($" . "_SESSION['barber_id']"), 'pending login clears authorized roles');
 ck(strpos($s, '/isletme/giris.php?step=2fa') < strpos($s, "renewAuthenticatedSession('barber'"), 'MFA redirect precedes authenticated session');
 
+// Exercise the shared MFA path with controlled redirects and account state.
 function evaluateBarberLoginRisk($barber) { return ['requires_2fa'=>true, 'reason'=>'new device']; }
 function sendBarber2faEmail(...$args) { return false; }
 function recordLoginAttempt(...$args) {}
@@ -88,6 +90,7 @@ try { completeBarberPasswordLogin(['id'=>1,'eposta'=>'x@example.invalid','isletm
 ck($GLOBALS['redirect'] === 'Location: /isletme/giris.php?step=2fa', 'shared MFA endpoint even on mail failure');
 ck(!isset($_SESSION['barber_id']) && !isset($_SESSION['admin_id']) && !isset($_SESSION['user_id']) && !isset($_SESSION['manager_id']) && isset($_SESSION['2fa_pending']), 'no authorized session before MFA');
 ck(str_contains($_SESSION['2fa_resend_flash'], 'gonderilemedi'), 'mail failure shown without granting access');
+// Run the real enqueue implementation against a failing connection double.
 $s = file_get_contents(__DIR__.'/../data/mail_service.php');
 $a = strpos($s, 'function enqueueMail('); $b = strpos($s, "\nfunction ", $a+1);
 $s = str_replace('function enqueueMail(', 'function enqueueMailUnderTest(', substr($s, $a, $b-$a)); eval($s);

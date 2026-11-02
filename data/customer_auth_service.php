@@ -1,10 +1,18 @@
 <?php
+// BİTİRAS — Müşteri Doğrulama ve Hesap Güvenliği Servisi
+// E-posta doğrulama kodları, 1-tık onay bağlantıları ve şifre sıfırlama işlemleri.
 
 require_once __DIR__ . '/security.php';
 require_once __DIR__ . '/mail_service.php';
 
+/**
+ * Base site URL helper for verification and reset links.
+ */
 require_once __DIR__ . '/app_url.php';
 
+/**
+ * Generates and sends a 6-digit verification code and secure 1-click link to customer.
+ */
 function sendCustomerVerificationEmail(int $customerId, string $email, string $fullName): bool {
     try {
     global $pdo;
@@ -56,6 +64,9 @@ function sendCustomerVerificationEmail(int $customerId, string $email, string $f
     }
 }
 
+/**
+ * Verifies a 6-digit code entered manually in the customer dashboard.
+ */
 function verifyCustomerEmailCode(int $customerId, string $inputCode): array {
     global $pdo;
     $attempt = $pdo->prepare("UPDATE kullanicilar SET eposta_dogrulama_deneme = eposta_dogrulama_deneme + 1 WHERE id = ? AND eposta_dogrulandi = 0 AND eposta_dogrulama_deneme < 5 AND eposta_dogrulama_son_tarih > NOW()");
@@ -110,6 +121,9 @@ function verifyCustomerEmailCode(int $customerId, string $inputCode): array {
     return ['success' => false, 'message' => 'Girdiğiniz doğrulama kodu hatalı. Lütfen kontrol edip tekrar deneyin.'];
 }
 
+/**
+ * Verifies customer email via 1-click token link from the email.
+ */
 function verifyCustomerEmailToken(string $token): array {
     global $pdo;
 
@@ -151,6 +165,9 @@ function verifyCustomerEmailToken(string $token): array {
     return ['success' => false, 'message' => 'Doğrulama bağlantısı geçersiz veya süresi dolmuş.'];
 }
 
+/**
+ * Sends a password reset link without leaking whether the account exists.
+ */
 function requestPasswordReset(string $email): bool {
     try {
     global $pdo;
@@ -199,6 +216,9 @@ function requestPasswordReset(string $email): bool {
     return true;
 }
 
+/**
+ * Resets user password with valid reset token.
+ */
 function resetPasswordWithToken(string $token, string $newPassword): array {
     global $pdo;
 
@@ -248,11 +268,15 @@ function resetPasswordWithToken(string $token, string $newPassword): array {
     $upd->execute([$newHash, $matchedUser['id'], $tokenHash]);
     if ($upd->rowCount() !== 1) return ['success'=>false, 'message'=>'Baglanti kullanilmis veya gecersiz.'];
 
+    // Send confirmation email
     sendPasswordChangedNotification((int)$matchedUser['id'], $matchedUser['eposta'], $matchedUser['ad_soyad']);
 
     return ['success' => true, 'message' => 'Şifreniz başarıyla yenilendi! Yeni şifrenizle giriş yapabilirsiniz.'];
 }
 
+/**
+ * Sends security alert when customer password is changed.
+ */
 function sendPasswordChangedNotification(int $userId, string $email, string $fullName): void {
     try {
     $now = date('d.m.Y H:i');

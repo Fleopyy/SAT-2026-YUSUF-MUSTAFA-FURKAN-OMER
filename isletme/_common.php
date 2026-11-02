@@ -11,6 +11,27 @@ if (!$business) {
 }
 $businessId = (int)$business['id'];
 
+// İşletmenin profil fotoğrafını çek
+try {
+    $stmtPhoto = $pdo->prepare('SELECT f.fotograf_yolu 
+                                FROM isletme_panel_medya m 
+                                JOIN isletme_fotograflari f ON f.id = m.profil_fotograf_id AND f.isletme_id = m.isletme_id 
+                                WHERE m.isletme_id = ?');
+    $stmtPhoto->execute([$businessId]);
+    $business['profil_fotografi'] = $stmtPhoto->fetchColumn() ?: null;
+    if (empty($business['profil_fotografi'])) {
+        $stmtFallback = $pdo->prepare('SELECT f.fotograf_yolu 
+                                       FROM isletme_fotograflari f 
+                                       LEFT JOIN isletme_fotograf_siralama s ON s.fotograf_id = f.id AND s.isletme_id = f.isletme_id 
+                                       WHERE f.isletme_id = ? 
+                                       ORDER BY s.sira ASC, f.id ASC LIMIT 1');
+        $stmtFallback->execute([$businessId]);
+        $business['profil_fotografi'] = $stmtFallback->fetchColumn() ?: null;
+    }
+} catch (Throwable $e) {
+    $business['profil_fotografi'] = null;
+}
+
 function businessEscape($value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }

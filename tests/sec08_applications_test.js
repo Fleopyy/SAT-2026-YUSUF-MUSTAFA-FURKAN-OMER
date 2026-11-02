@@ -4,6 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { spawnSync } = require('node:child_process');
 
+// Render the actual template without loading auth, headers or a database connection.
 const root = path.resolve(__dirname, '..');
 const source = fs.readFileSync(path.join(root, 'admin/pages/applications.php'), 'utf8');
 assert(!/on(?:click|submit)="[^"\r\n]*isletme_adi/.test(source));

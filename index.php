@@ -140,6 +140,7 @@ try {
     $orderBy = 'rating DESC, i.isletme_adi ASC';
     if ($activeFilter === 'puan') {
         $orderBy = 'rating DESC, review_count DESC, i.isletme_adi ASC';
+        $businessConditions[] = 'COALESCE(r.rating,0) BETWEEN 4 AND 5';
     }
 
     $businessSql = "SELECT i.id, i.isletme_adi, i.isletme_sahibi, i.sehir, i.ilce, i.tam_adres, i.aciklama,
@@ -181,16 +182,17 @@ try {
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="<?= htmlspecialchars(generateCsrfToken(), ENT_QUOTES, 'UTF-8') ?>">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($s['site_baslik'] ?? 'BiTıraş | Premium Berber & Erkek Kuaförü Randevu Sistemi', ENT_QUOTES, 'UTF-8') ?></title>
     <meta name="description"
         content="<?= htmlspecialchars($s['site_aciklama'] ?? 'Türkiye\'nin en seçkin berber ve erkek kuaförlerinden anında online randevu alın. Sıra beklemeden tarzınızı keşfedin.', ENT_QUOTES, 'UTF-8') ?>">
-    <?php if (hasFunctionalConsent()): ?><link rel="preconnect" href="https://fonts.googleapis.com"><?php endif; ?>
-    <?php if (hasFunctionalConsent()): ?><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><?php endif; ?>
-    <?php if (hasFunctionalConsent()): ?><link
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
         href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap"
-        rel="stylesheet"><?php endif; ?>
-    <?php if (hasFunctionalConsent()): ?><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><?php endif; ?>
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
 
@@ -652,30 +654,42 @@ try {
                 <div class="row g-4" id="featured-cards-grid">
                     <?php if (!$featuredBusinesses): ?>
                         <div class="col-12">
-                            <div class="empty-state">
-                                <h4>
-                                    <?php if ($searchPerformed): ?>
-                                        Bu konumda eşleşen berber bulunamadı
-                                    <?php elseif ($activeFilter === 'vip'): ?>
-                                        Şu anda VIP salon bulunmuyor
-                                    <?php elseif ($activeFilter === 'gece'): ?>
-                                        Şu anda gece açık işletme bulunmuyor
-                                    <?php else: ?>
-                                        Şu anda yayında işletme bulunmuyor
-                                    <?php endif; ?>
-                                </h4>
-                                <p>
-                                    <?php if ($searchPerformed): ?>
-                                        Farklı bir şehir, ilçe veya hizmet seçip tekrar arayabilirsin.
-                                    <?php elseif ($activeFilter === 'vip'): ?>
-                                        Yönetim tarafından onaylanan VIP salonlar burada listelenecektir.
-                                    <?php elseif ($activeFilter === 'gece'): ?>
-                                        Gece saatlerinde hizmet veren salonlar burada listelenecektir.
-                                    <?php else: ?>
-                                        Yeni onaylanan işletmeler burada görüntülenecek.
-                                    <?php endif; ?>
-                                </p>
-                            </div>
+                            <?php if ($searchPerformed): ?>
+                                <div class="text-center py-5 px-3 rounded-4 border my-3" style="border: 1.5px dashed #CBD5E1 !important; background: #F8FAFC !important;">
+                                    <div class="d-inline-flex align-items-center justify-content-center rounded-circle mb-3" style="width: 72px; height: 72px; background: rgba(194, 136, 64, 0.12); color: var(--accent, #C28840); font-size: 30px;">
+                                        <i class="fa-solid fa-store"></i>
+                                    </div>
+                                    <h3 class="fs-4 fw-extrabold text-dark mb-2">Aradığınız şehirde kayıtlı berber bulunamadı.</h3>
+                                    <p class="text-muted fs-6 mb-4" style="max-width: 520px; margin-left: auto; margin-right: auto; line-height: 1.5;">
+                                        Siz de işletmenizi BiTıraş.com'a ekleyerek müşterilerinize ulaşabilirsiniz.
+                                    </p>
+                                    <a href="/index.php?register=barber" onclick="openAuthModal('register', 'barber'); return false;" class="btn btn-lg px-4 py-3 fw-bold text-white shadow-sm" style="background: var(--accent, #C28840); border: none; border-radius: 12px; font-size: 15px; display: inline-flex; align-items: center; gap: 8px;">
+                                        <i class="fa-solid fa-scissors"></i>
+                                        <span>İşletmenizi Kaydedin</span>
+                                    </a>
+                                </div>
+                            <?php else: ?>
+                                <div class="empty-state text-center py-5">
+                                    <h4 class="fw-bold text-dark">
+                                        <?php if ($activeFilter === 'vip'): ?>
+                                            Şu anda VIP salon bulunmuyor
+                                        <?php elseif ($activeFilter === 'gece'): ?>
+                                            Şu anda gece açık işletme bulunmuyor
+                                        <?php else: ?>
+                                            Şu anda yayında işletme bulunmuyor
+                                        <?php endif; ?>
+                                    </h4>
+                                    <p class="text-muted">
+                                        <?php if ($activeFilter === 'vip'): ?>
+                                            Yönetim tarafından onaylanan VIP salonlar burada listelenecektir.
+                                        <?php elseif ($activeFilter === 'gece'): ?>
+                                            Gece saatlerinde hizmet veren salonlar burada listelenecektir.
+                                        <?php else: ?>
+                                            Yeni onaylanan işletmeler burada görüntülenecek.
+                                        <?php endif; ?>
+                                    </p>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     <?php else: foreach ($featuredBusinesses as $featuredBusiness):
                         $imagePath = $featuredBusiness['cover_photo'] ?: $featuredBusiness['profile_photo'];
@@ -959,7 +973,7 @@ try {
         'services' => $availableBusinessServices,
     ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;</script>
     <script src="app.js"></script>
-    <?php if (($_GET['login'] ?? '') === 'customer'): ?><script>document.addEventListener('DOMContentLoaded', () => openAuthModal('login', 'customer'));</script><?php endif; ?>
+    <?php if (in_array(($_GET['login'] ?? ''), ['customer', 'barber'], true)): ?><script>document.addEventListener('DOMContentLoaded', () => openAuthModal('login', <?= json_encode($_GET['login']) ?>));</script><?php endif; ?>
 <script>
 document.addEventListener("DOMContentLoaded", function() {
     const filterLinks = document.querySelectorAll(".js-filter-link");
@@ -971,6 +985,7 @@ document.addEventListener("DOMContentLoaded", function() {
             const targetUrl = this.getAttribute("href");
             if (!targetUrl) return;
 
+            // Immediately switch button active styling
             filterLinks.forEach(l => {
                 l.classList.remove("btn-dark");
                 l.classList.add("btn-outline-dark");

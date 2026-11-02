@@ -1,4 +1,5 @@
 <?php
+// CLI only. Execute production functions with in-memory doubles; no DB, SMTP or HTTP.
 if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 function loadSecurityFunction(string $file, string $name): void {
     $source = file_get_contents(dirname(__DIR__) . '/' . $file);
@@ -112,6 +113,7 @@ foreach ([null, '{bad', json_encode(['version'=>1,'functional'=>true,'updated_at
 }
 $_COOKIE['bitiras_cookie_consent'] = json_encode(['version'=>1,'functional'=>true,'updated_at'=>gmdate('c')]);
 remainingCheck(hasFunctionalConsent(), 'explicit unexpired functional consent accepted');
+// Exercise the actual resend controller without its application bootstrap or side effects.
 class RemainingExit extends Exception {}
 function verifyCsrfToken() { return $GLOBALS['testCsrf']; }
 function remainingHeader($value) {}
@@ -133,6 +135,7 @@ foreach ([['GET',true,[],0], ['POST',false,[],0], ['POST',true,['expires'=>time(
     remainingCheck($resends === $expected, 'resend method, CSRF, expiry, attempt, budget and cooldown gates');
     remainingCheck($_SESSION['2fa_pending']['expires'] === $originalExpiry, 'resend never extends challenge');
 }
+// Real PDO with SQLite memory only; prove a recovery code cannot be replayed.
 loadSecurityFunction('data/two_factor_service.php', 'verifyAndConsumeRecoveryCode');
 $memory = new PDO('sqlite::memory:');
 $memory->exec('CREATE TABLE yoneticiler (id INTEGER PRIMARY KEY, kurtarma_kodlari_hash TEXT)');

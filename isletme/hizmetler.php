@@ -131,28 +131,108 @@ include __DIR__ . '/_header.php';
         <?php if (!$services): ?><div class="empty-state"><i class="fa-solid fa-scissors"></i><h4>Henüz hizmet eklenmemiş</h4></div>
         <?php else: ?><div style="overflow-x:auto;"><table class="admin-table"><thead><tr><th>Hizmet</th><th>Fiyat</th><th>Süre</th><th>Çalışanlar</th><th>Durum</th><th>İşlem</th></tr></thead><tbody>
             <?php foreach ($services as $service): ?>
-                <tr><td><strong><?= businessEscape($service['hizmet_adi']) ?></strong><small style="display:block;color:#64748B;"><?= businessEscape($service['aciklama'] ?? '') ?></small></td>
-                    <td><?= number_format((float)$service['fiyat'], 2, ',', '.') ?> ₺</td><td><?= (int)$service['sure_dakika'] ?> dk</td>
-                    <td><?php foreach ($employees as $employee): if (in_array((int)$employee['id'], $assigned[(int)$service['id']] ?? [], true)): ?><span class="status-badge"><?= businessEscape($employee['ad_soyad']) ?></span><?php endif; endforeach; ?></td>
+                <tr>
+                    <td>
+                        <strong><?= businessEscape($service['hizmet_adi']) ?></strong>
+                        <?php if (!empty($service['aciklama'])): ?>
+                            <small style="display:block;color:#64748B;margin-top:2px;"><?= businessEscape($service['aciklama']) ?></small>
+                        <?php endif; ?>
+                    </td>
+                    <td style="white-space:nowrap;font-weight:600;"><?= number_format((float)$service['fiyat'], 2, ',', '.') ?> ₺</td>
+                    <td style="white-space:nowrap;color:#64748B;"><?= (int)$service['sure_dakika'] ?> dk</td>
+                    <td>
+                        <?php 
+                        $hasEmp = false;
+                        foreach ($employees as $employee): 
+                            if (in_array((int)$employee['id'], $assigned[(int)$service['id']] ?? [], true)): 
+                                $hasEmp = true; ?>
+                                <span class="status-badge" style="margin:2px 3px 2px 0;"><?= businessEscape($employee['ad_soyad']) ?></span>
+                        <?php endif; endforeach; 
+                        if (!$hasEmp): ?><span style="color:#94A3B8;font-size:12px;">—</span><?php endif; ?>
+                    </td>
                     <td><span class="status-badge <?= $service['aktif_mi'] ? 'active' : 'suspended' ?>"><?= $service['aktif_mi'] ? 'Aktif' : 'Pasif' ?></span></td>
-                    <td><details><summary class="btn-admin outline sm">Düzenle</summary><form method="POST" class="admin-form" onsubmit="return validateServiceForm(this)" style="min-width:280px;padding:12px;">
-                        <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="save"><input type="hidden" name="service_id" value="<?= (int)$service['id'] ?>">
-                        <div class="form-group"><label>Hizmet adı</label><input name="name" value="<?= businessEscape($service['hizmet_adi']) ?>" required maxlength="150"></div>
-                        <div class="form-group"><label>Fiyat (TL)</label><input name="price" type="number" min="0" step="0.01" value="<?= businessEscape($service['fiyat']) ?>" required></div>
-                        <div class="form-group"><label>Süre (dakika)</label><input name="duration" type="number" min="1" max="1440" value="<?= (int)$service['sure_dakika'] ?>" required></div>
-                        <div class="form-group"><label>Açıklama</label><textarea name="description" maxlength="5000"><?= businessEscape($service['aciklama'] ?? '') ?></textarea></div>
-                        <?php foreach ($employees as $employee): ?><label style="display:flex;gap:8px;align-items:center;margin:6px 0;"><input type="checkbox" name="employee_ids[]" value="<?= (int)$employee['id'] ?>" <?= in_array((int)$employee['id'], $assigned[(int)$service['id']] ?? [], true) ? 'checked' : '' ?>><?= businessEscape($employee['ad_soyad']) ?></label><?php endforeach; ?>
-                        <button class="btn-admin primary sm" type="submit">Kaydet</button>
-                    </form></details>
-                    <form method="POST" class="business-inline-form" onsubmit="return adminConfirmForm(event, this, 'Hizmet durumunu değiştirmek istiyor musunuz?');">
-                        <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>"><input type="hidden" name="action" value="toggle"><input type="hidden" name="service_id" value="<?= (int)$service['id'] ?>"><input type="hidden" name="active" value="<?= $service['aktif_mi'] ? 0 : 1 ?>">
-                        <button class="btn-admin <?= $service['aktif_mi'] ? 'danger' : 'success' ?> sm"><?= $service['aktif_mi'] ? 'Pasife al' : 'Aktifleştir' ?></button>
-                    </form></td>
+                    <td class="business-actions" style="white-space:nowrap;">
+                        <div style="display:inline-flex;align-items:center;gap:6px;">
+                            <button type="button" class="btn-admin outline sm" onclick="openEditModal(<?= (int)$service['id'] ?>)">
+                                <i class="fa-solid fa-pen-to-square"></i> Düzenle
+                            </button>
+                            <form method="POST" class="business-inline-form" onsubmit="return adminConfirmForm(event, this, 'Hizmet durumunu değiştirmek istiyor musunuz?');" style="margin:0;">
+                                <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>">
+                                <input type="hidden" name="action" value="toggle">
+                                <input type="hidden" name="service_id" value="<?= (int)$service['id'] ?>">
+                                <input type="hidden" name="active" value="<?= $service['aktif_mi'] ? 0 : 1 ?>">
+                                <button class="btn-admin <?= $service['aktif_mi'] ? 'danger' : 'success' ?> sm" type="submit">
+                                    <i class="fa-solid <?= $service['aktif_mi'] ? 'fa-pause' : 'fa-play' ?>"></i> <?= $service['aktif_mi'] ? 'Pasife al' : 'Aktifleştir' ?>
+                                </button>
+                            </form>
+                        </div>
+                    </td>
                 </tr>
             <?php endforeach; ?>
         </tbody></table></div><?php endif; ?>
     </div>
 </section>
+<?php if ($services): ?>
+    <?php foreach ($services as $service): ?>
+    <div id="editModal-<?= (int)$service['id'] ?>" class="modal-overlay" onclick="if(event.target===this) closeEditModal(<?= (int)$service['id'] ?>)">
+        <div class="modal-box" style="max-width: 600px;">
+            <div class="modal-head">
+                <h3><i class="fa-solid fa-pen-to-square me-2" style="color:var(--admin-accent);"></i>Hizmeti Düzenle: <?= businessEscape($service['hizmet_adi']) ?></h3>
+                <button type="button" class="close-btn" onclick="closeEditModal(<?= (int)$service['id'] ?>)" aria-label="Kapat"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form method="POST" class="admin-form" onsubmit="return validateServiceForm(this)">
+                <input type="hidden" name="csrf_token" value="<?= businessEscape(generateCsrfToken()) ?>">
+                <input type="hidden" name="action" value="save">
+                <input type="hidden" name="service_id" value="<?= (int)$service['id'] ?>">
+                <div class="modal-body" style="padding: 20px 24px;">
+                    <div class="business-form-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;">
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label>Hizmet Adı</label>
+                            <input name="name" value="<?= businessEscape($service['hizmet_adi']) ?>" required maxlength="150" placeholder="Örn: Saç Kesimi">
+                        </div>
+                        <div class="form-group">
+                            <label>Fiyat (TL)</label>
+                            <input name="price" type="number" min="0" step="0.01" value="<?= businessEscape($service['fiyat']) ?>" required placeholder="Örn: 250">
+                        </div>
+                        <div class="form-group">
+                            <label>Süre (Dakika)</label>
+                            <input name="duration" type="number" min="1" max="1440" value="<?= (int)$service['sure_dakika'] ?>" required placeholder="Örn: 30">
+                        </div>
+                        <div class="form-group" style="grid-column: 1 / -1;">
+                            <label>Açıklama</label>
+                            <textarea name="description" maxlength="5000" rows="3" placeholder="Hizmet detayları ve açıklaması..."><?= businessEscape($service['aciklama'] ?? '') ?></textarea>
+                        </div>
+                        <fieldset class="form-group" style="grid-column: 1 / -1; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 14px; background: #F8FAFC;">
+                            <legend style="font-size: 11.5px; font-weight: 800; color: var(--admin-text-muted); text-transform: uppercase; letter-spacing: 0.5px; padding: 0 6px;">Hizmeti Sunabilecek Çalışanlar</legend>
+                            <?php if (!$employees): ?>
+                                <small style="color: #64748B;">Çalışan ekleyip aktif hale getirin.</small>
+                            <?php else: ?>
+                                <div class="services-checkbox-list" style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                    <?php foreach ($employees as $employee): ?>
+                                        <label class="service-checkbox-pill">
+                                            <input type="checkbox" name="employee_ids[]" value="<?= (int)$employee['id'] ?>" <?= in_array((int)$employee['id'], $assigned[(int)$service['id']] ?? [], true) ? 'checked' : '' ?>>
+                                            <span><?= businessEscape($employee['ad_soyad']) ?></span>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+                        </fieldset>
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding: 16px 24px; background: #F8FAFC; border-top: 1px solid var(--admin-border); display: flex; justify-content: flex-end; gap: 10px;">
+                    <button type="button" class="btn-admin outline sm" onclick="closeEditModal(<?= (int)$service['id'] ?>)">
+                        <i class="fa-solid fa-xmark"></i> Vazgeç
+                    </button>
+                    <button type="submit" class="btn-admin primary sm">
+                        <i class="fa-solid fa-floppy-disk"></i> Değişiklikleri Kaydet
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <?php endforeach; ?>
+<?php endif; ?>
+
 <script>
 function validateServiceForm(form) {
     const price = Number(form.elements.price.value);
@@ -163,5 +243,30 @@ function validateServiceForm(form) {
     }
     return true;
 }
+
+function openEditModal(id) {
+    const modal = document.getElementById('editModal-' + id);
+    if (modal) {
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+}
+
+function closeEditModal(id) {
+    const modal = document.getElementById('editModal-' + id);
+    if (modal) {
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.active').forEach(function(m) {
+            m.classList.remove('active');
+        });
+        document.body.style.overflow = '';
+    }
+});
 </script>
 <?php include __DIR__ . '/_footer.php'; ?>
